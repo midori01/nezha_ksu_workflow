@@ -26,7 +26,7 @@ on:
       os_patch_level:
         description: 'OS patch level (e.g. 2025-05 or 2025-05-exp)'
         required: true
-        default: '2025-05-exp'
+        default: '2025-05'
         type: string
       disable_susfs:
         description: 'Disable SuSFS'
@@ -222,12 +222,13 @@ jobs:
       #    Makefile/Kconfig — no manual symlink needed.
       # ----------------------------------------------------------------
       - name: Setup KowSU
+        working-directory: ${{ env.KERNEL_ROOT }}/common
         run: |
-          cd "$KERNEL_ROOT/common"
           rm -rf KernelSU drivers/kernelsu
 
           echo "📥 Adding KowSU..."
-          curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh" | bash -s master
+          KERNEL_DIR="$GITHUB_WORKSPACE/android-kernel/common" \
+            bash <(curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh") master
           echo "✅ KowSU integrated"
 
       # ----------------------------------------------------------------
@@ -349,15 +350,10 @@ jobs:
           # SuSFS configs (only when enabled)
           if [ "$ENABLE_SUSFS" = "true" ]; then
             printf '%s\n' 'CONFIG_KSU_SUSFS=y' >> "$FRAGMENT"
-            printf '%s\n' 'CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_PATH=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_MOUNT=y' >> "$FRAGMENT"
-            printf '%s\n' 'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y' >> "$FRAGMENT"
-            printf '%s\n' 'CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_KSTAT=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n' >> "$FRAGMENT"
-            printf '%s\n' 'CONFIG_KSU_SUSFS_TRY_UMOUNT=y' >> "$FRAGMENT"
-            printf '%s\n' 'CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_SPOOF_UNAME=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_ENABLE_LOG=y' >> "$FRAGMENT"
             printf '%s\n' 'CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y' >> "$FRAGMENT"
