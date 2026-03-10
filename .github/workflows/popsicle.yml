@@ -487,7 +487,7 @@ jobs:
           | SuSFS      | `$SUSFS_COMMIT_SHORT` | $SUSFS_COMMIT_MSG |
 
           ## Devices
-          - Pixel 8, Pixel 8a, Pixel 8 Pro
+          - Xiaomi popsicle
           EOF
 
           echo "CHANGELOG_FILE=$CF" >> $GITHUB_ENV
