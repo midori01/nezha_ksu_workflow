@@ -115,7 +115,8 @@ jobs:
           SUSFS_BUILD_NUM=$(gh release list \
             --repo "${{ github.repository }}" \
             --limit 100 \
-            | grep -c "${SUSFS_VERSION}-r" || true)
+            --json tagName \
+            --jq '[.[] | select(.tagName | startswith("'"${SUSFS_VERSION}-r"'"))] | length')
           SUSFS_BUILD_NUM=$(( ${SUSFS_BUILD_NUM:-0} + 1 ))
 
           echo "susfs_build_tag=${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}" >> "$GITHUB_OUTPUT"
