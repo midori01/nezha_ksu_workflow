@@ -11,5 +11,5 @@ index 2596f78e5..dcc5e4bca 100755
 -#define LINUX_COMPILER		"${CC_VERSION}, ${LD_VERSION}"
 +#define LINUX_COMPILE_BY	"kleaf"
 +#define LINUX_COMPILE_HOST	"build-host"
-+#define LINUX_COMPILER		"Android (12458285, +pgo, +bolt, +lto, -mlgo, based on r536225) clang version 18.0.0 (https://android.googlesource.com/toolchain/llvm-project 477610d4d0e3f7b1d2bc239fd3b2c4f35b4d88ab), LLD 18.0.0"
++#define LINUX_COMPILER		"Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460), LLD 19.0.1"
  EOF
