@@ -604,15 +604,20 @@ jobs:
 
       # Derive the release tag by counting prior releases for this SuSFS version
       - name: Resolve release tag
+        id: release_tag
         run: |
+          SUSFS_VERSION="${{ steps.susfs_version.outputs.susfs_version }}"
+
+          # Count releases whose tag starts with this SuSFS version
           SUSFS_BUILD_NUM=$(gh release list \
             --repo "${{ github.repository }}" \
             --limit 100 \
-            | grep -c "${SUSFS_VERSION}-r" || true)
+            --json tagName \
+            --jq '[.[] | select(.tagName | startswith("'"${SUSFS_VERSION}-r"'"))] | length')
+
           SUSFS_BUILD_NUM=$(( ${SUSFS_BUILD_NUM:-0} + 1 ))
 
-          echo "SUSFS_BUILD_NUM=$SUSFS_BUILD_NUM"                      >> "$GITHUB_ENV"
-          echo "SUSFS_BUILD_TAG=${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}" >> "$GITHUB_ENV"
+          echo "susfs_build_tag=${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}" >> "$GITHUB_OUTPUT"
           echo "📌 Release tag: ${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
