@@ -489,8 +489,8 @@ jobs:
       - name: Resolve SuSFS build counter
         run: |
           SUSFS_BUILD_NUM=$(gh release list --repo "${{ github.repository }}" --limit 100 \
-            | grep -c "^${SUSFS_VERSION}-r" || echo "0")
-          SUSFS_BUILD_NUM=$((SUSFS_BUILD_NUM + 1))
+            | grep -c "${SUSFS_VERSION}-r" || true)
+          SUSFS_BUILD_NUM=$(( ${SUSFS_BUILD_NUM:-0} + 1 ))
           echo "SUSFS_BUILD_NUM=$SUSFS_BUILD_NUM"                      >> $GITHUB_ENV
           echo "SUSFS_BUILD_TAG=${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}" >> $GITHUB_ENV
           echo "📌 SuSFS build tag: ${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}"
