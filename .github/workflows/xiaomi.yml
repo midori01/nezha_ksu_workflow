@@ -1,0 +1,343 @@
+name: 加速版构建 6.12.23 with SUSFS KowSU
+
+env:
+  TZ: Asia/Shanghai
+  ANDROID_VERSION: 'android16'
+  KERNEL_VERSION: '6.12'
+  SUB_VERSION: '23'
+  KERNEL_NAME: 'android16-5-g6928909e3148-abogki444322847'
+  CCACHE_KEY: ccache-neov5-6.12.23
+
+on:
+  workflow_dispatch:
+    inputs:
+      ksu_type:
+        description: 'KernelSU分支(KowSU/无内置KSU)'
+        required: true
+        type: choice
+        default: 'kowsu'
+        options:
+          - 'kowsu'
+          - 'none'
+      susfs_enable:
+        description: '是否开启susfs(用于增强隐藏环境挂载功能; 可能轻微增加耗电，上游更新导致不稳定时或不需要可关闭)'
+        required: true
+        type: boolean
+        default: 'true'
+      kpm_enable:
+        description: '是否开启kpm(builtin-使用(re)sukisu内置kpm, kpn-使用独立kpm实现(支持任意KSU/面具环境); 不需要可保持默认关闭)'
+        required: true
+        type: choice
+        default: 'false'
+        options:
+          - 'false'
+          - 'builtin'
+          - 'kpn'
+      lz4_enable:
+        description: '是否安装 lz4 1.10.0+zstd 1.5.7 补丁及 LZ4KD 补丁'
+        required: true
+        type: boolean
+        default: 'true'
+      lz4kd_enable:
+        description: '是否安装 LZ4KD 补丁(若已开启lz4+zstd补丁则可不开启)'
+        required: true
+        type: boolean
+        default: 'false'
+      bbr_enable:
+        description: "是否启用bbr算法(优化上行数据,对手机日用无太大意义甚至可能负优化;false关闭,true仅加入算法,default启用算法并设为默认)"
+        required: true
+        type: choice
+        default: 'false'
+        options:
+          - 'false'
+          - 'true'
+          - 'default'
+      better_net:
+        description: '是否开启网络功能拓展配置(用于为ipset及需要iptables等高级网络功能内核支持的程序提供支持)'
+        required: true
+        type: boolean
+        default: 'false'
+      adios_enable:
+        description: '是否启用ADIOS IO调度器支持(提升IO读写性能)'
+        required: true
+        type: boolean
+        default: 'true'
+      rekernel_enable:
+        description: '是否启用Re-Kernel支持(与Freezer/NoActive等软件配合, 提升应用冻结能力)'
+        required: true
+        type: boolean
+        default: 'false'
+      baseband_guard:
+        description: '是否开启内核级基带保护(阻止一切对非用户分区的写入，有效防止格机)'
+        required: true
+        type: boolean
+        default: 'true'
+      ccache_update:
+        description: '更新ccache缓存(将本次编译生成的ccache缓存覆盖至仓库缓存，在更改编译配置、源码或需要刷新缓存时开启)'
+        required: true
+        type: boolean
+        default: 'false'
+      ccache_debug:
+        description: '是否上传 Ccache调试日志(用于调试, 无需要不必开启)'
+        required: true
+        type: boolean
+        default: 'false'
+      kernel_suffix:
+        description: '内核后缀(留空默认,开头别加连字符,勿加空格等影响指令运行的保留字符)'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      ksuver: ${{ steps.ksu_version.outputs.ksuver }}
+      ak3name: ${{ steps.create_zip.outputs.ak3name }}
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: 安装环境依赖+初始化源码仓库及llvm-clang19工具链
+        run: |
+          rm -rf kernel_workspace
+          mkdir kernel_workspace
+          cd kernel_workspace
+          
+          sudo apt update && sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev libdw-dev aria2 zip unzip ccache
+          
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/ccache-x86-64 -O ccache &&
+          sudo cp -f ./ccache /usr/bin/ccache &&
+          sudo chmod +x /usr/bin/ccache &&
+          rm -f ./ccache
+          
+          echo "正在克隆源码仓库..."
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_kernel_common_oneplus_sm8850/archive/refs/heads/oneplus/sm8850_v_16.0.0_oneplus_15.zip -o common.zip && 
+          unzip -q common.zip && 
+          mv "android_kernel_common_oneplus_sm8850-oneplus-sm8850_v_16.0.0_oneplus_15" common &&
+          rm -rf common.zip
+          
+          echo "正在克隆llvm-clang19工具链..." &&
+          mkdir -p clang19 &&
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip &&
+          unzip -q clang.zip -d clang19 &&
+          rm -rf clang.zip
+          
+          echo "正在克隆Rust 1.82.0工具链..." &&
+          mkdir -p rust &&
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip &&
+          unzip -q rust.zip -d rust &&
+          rm -rf rust.zip
+          
+          echo "正在克隆构建工具..." &&
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip &&
+          unzip -q build-tools.zip &&
+          rm -rf build-tools.zip
+          
+          echo "正在去除 dirty 后缀..."
+          for f in common/scripts/setlocalversion; do
+            sed -i 's/ -dirty//g' "$f"
+          done
+
+      - name: 配置ccache目录
+        run: |
+          echo "CCACHE_DIR=$HOME/.ccache_${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }}" >> $GITHUB_ENV
+          echo "CCACHE_MAXSIZE=3G" >> $GITHUB_ENV
+
+      - name: 载入当前版本内核的 ccache缓存
+        uses: actions/cache@v4
+        id: ccache-restore
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ env.CCACHE_KEY }}-${{ runner.os }}-main
+          restore-keys: |
+            ${{ env.CCACHE_KEY }}-${{ runner.os }}-
+
+      - name: 初始化并配置ccache
+        run: |
+          export CCACHE_DIR="${{ env.CCACHE_DIR }}"
+          mkdir -p "$CCACHE_DIR"
+          ccache -M 3G
+          ccache -o compression=true
+
+      - name: 添加 KowSU & 版本获取
+        id: ksu_version
+        run: |
+          cd kernel_workspace
+          if [[ ${{ github.event.inputs.ksu_type }} == "kowsu" ]]; then
+            echo "📥 Integrating KowSU..."
+            cd common
+            rm -rf KernelSU drivers/kernelsu
+            curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh" | bash -s master
+            
+            cd KernelSU
+            git fetch --unshallow 2>&1 || echo "⚠️ Could not unshallow"
+            KSU_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+            KSU_VERSION=$((KSU_COUNT + 30000))
+            
+            {
+              echo "KSUVER=$KSU_VERSION"
+              echo "KSU_COMMIT_SHORT=$(git log -1 --format='%h')"
+              echo "KSU_COMMIT_MSG=$(git log -1 --format='%s')"
+            } >> "$GITHUB_ENV"
+            echo "ksuver=$KSU_VERSION" >> "$GITHUB_OUTPUT"
+            echo "📌 KowSU version: r$KSU_VERSION"
+            cd ../..
+          else
+            echo "已选择无内置KernelSU模式"
+          fi
+
+      - name: 应用 KowSU & SUSFS 补丁
+        if: inputs.susfs_enable
+        run: |
+          cd kernel_workspace
+          git clone --depth=1 https://github.com/yapixel/kernel_patches.git patches_repo
+          
+          if [[ ${{ github.event.inputs.ksu_type }} != "none" ]]; then
+            echo "正在添加susfs补丁..."
+            git clone --depth=1 https://github.com/cctv18/susfs4oki.git susfs4ksu -b oki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
+            cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-*.patch ./common/
+            cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
+            cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+            cd ./common
+            patch -p1 < 50_add_susfs_in_gki-*.patch || true
+            cd ..
+          fi
+
+          if [[ ${{ github.event.inputs.ksu_type }} == "kowsu" ]]; then
+            echo "📋 Applying 10_enable_susfs_for_ksu.patch (kowsu)..."
+            cp ./patches_repo/kowsu/10_enable_susfs_for_ksu.patch ./common/KernelSU/
+            cd ./common/KernelSU
+            patch -p1 < 10_enable_susfs_for_ksu.patch || { echo "❌ KSU SuSFS patch failed!"; exit 1; }
+            cd ../..
+          fi
+          
+      - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
+        if: inputs.lz4_enable
+        run: |
+          cd kernel_workspace
+          git clone --depth=1 https://github.com/$GITHUB_REPOSITORY.git -b $GITHUB_REF_NAME build_repo
+          cp ./build_repo/zram_patch/001-lz4.patch ./common/
+          cp ./build_repo/zram_patch/002-zstd.patch ./common/
+          cd ./common
+          patch -p1 < 001-lz4.patch || true
+          patch -p1 < 002-zstd.patch || true
+
+      - name: 添加SUSFS/KSU 配置项
+        run: |
+          cd kernel_workspace
+          # Common Configuration
+          echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          
+          if [[ ${{ inputs.susfs_enable }} == "true" ]]; then
+            echo "CONFIG_KSU_SUSFS=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> ./common/arch/arm64/configs/gki_defconfig
+          fi
+
+      - name: 启用其他特性 (BBR/ADIOS/Baseband)
+        run: |
+          cd kernel_workspace
+          # Baseband Guard
+          if [[ ${{ inputs.baseband_guard }} == "true" ]]; then
+            echo "CONFIG_BBG=y" >> ./common/arch/arm64/configs/gki_defconfig
+            cd ./common && curl -sSL https://github.com/cctv18/Baseband-guard/raw/master/setup.sh | bash && cd ..
+          fi
+          # ADIOS
+          if [[ ${{ inputs.adios_enable }} == "true" ]]; then
+            echo "CONFIG_MQ_IOSCHED_ADIOS=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_MQ_IOSCHED_DEFAULT_ADIOS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          fi
+          # BBR
+          if [[ "${{ github.event.inputs.bbr_enable }}" != "false" ]]; then
+            echo "CONFIG_TCP_CONG_ADVANCED=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_TCP_CONG_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_TCP_CONG_CUBIC=y" >> ./common/arch/arm64/configs/gki_defconfig
+            if [[ "${{ github.event.inputs.bbr_enable }}" == "default" ]]; then
+              echo "CONFIG_DEFAULT_TCP_CONG=bbr" >> ./common/arch/arm64/configs/gki_defconfig
+            fi
+          fi
+           
+      - name: 构建内核
+        run: |
+          WORKDIR="$(pwd)"
+          export PATH="/usr/lib/ccache:$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
+          export CLANG_DIR="$WORKDIR/kernel_workspace/clang19/bin"
+          
+          cd kernel_workspace/common
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
+          chmod 777 ./*.so
+          
+          export FAKESTAT="2025-05-25 12:00:00"
+          export FAKETIME="@2025-05-25 13:00:00"
+          SO_DIR=$(pwd)
+          export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
+          export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
+          
+          echo '#!/bin/bash' > cc-wrapper
+          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
+          echo 'ccache $REAL_CLANG_PATH "$@"' >> cc-wrapper
+          chmod +x cc-wrapper
+          
+          # make 6.12 kernel
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- O=out gki_defconfig
+          export CC="$(pwd)/cc-wrapper"
+          make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" O=out Image
+
+      - name: 克隆 AnyKernel3 并打包
+        id: create_zip
+        run: |
+          cd kernel_workspace
+          git clone https://github.com/cctv18/AnyKernel3 --depth=1
+          cd AnyKernel3
+          cp ../common/out/arch/arm64/boot/Image ./Image
+          
+          KSU_TYPENAME="KowSU"
+          if [[ ${{ github.event.inputs.ksu_type }} == "none" ]]; then KSU_TYPENAME="None"; fi
+          
+          AK3_NAME=AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}.zip
+          zip -r ../$AK3_NAME ./*
+          echo "ak3name=$AK3_NAME" >> $GITHUB_OUTPUT
+
+      - name: 上传 ZIP 工件
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.create_zip.outputs.ak3name }}
+          path: kernel_workspace/*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 下载 ZIP 工件
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.ak3name }}
+
+      - name: 创建发布
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "KowSU-build-${{ github.run_id }}"
+          name: "欧加真 KowSU 内核 - ${{ needs.build.outputs.ak3name }}"
+          body: |
+            ### 📱 KowSU sm8850 构建信息
+            - KowSU版本: r${{ needs.build.outputs.ksuver }}
+            - susfs支持: ${{ github.event.inputs.susfs_enable }}
+            - 基带保护: ${{ github.event.inputs.baseband_guard }}
+          files: ./*.zip
