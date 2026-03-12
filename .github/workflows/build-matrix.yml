@@ -108,16 +108,18 @@ jobs:
           echo "└─────────────────────────────────────────┘"
 
       - name: Resolve release tag
+      - name: Resolve release tag
         id: release_tag
         run: |
           SUSFS_VERSION="${{ steps.susfs_version.outputs.susfs_version }}"
 
-          SUSFS_BUILD_NUM=$(gh release list \
+          MATCHED=$(gh release list \
             --repo "${{ github.repository }}" \
             --limit 100 \
             --json tagName \
             --jq '[.[] | .tagName] | .[]' \
-            | grep -c "^${SUSFS_VERSION}-r" || true)
+            | grep "^${SUSFS_VERSION}-r" || true)
+          SUSFS_BUILD_NUM=$(echo "$MATCHED" | grep -c . || true)
           SUSFS_BUILD_NUM=$(( ${SUSFS_BUILD_NUM:-0} + 1 ))
 
           echo "susfs_build_tag=${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}" >> "$GITHUB_OUTPUT"
