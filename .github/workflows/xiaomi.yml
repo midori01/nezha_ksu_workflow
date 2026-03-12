@@ -1,4 +1,4 @@
-name: Fast Build 6.12.23 Xiaomi Popsicle (KowSU + SuSFS)
+name: Fast Build 6.12.23 Xiaomi Popsicle
 
 env:
   TZ: Asia/Shanghai
@@ -33,11 +33,6 @@ on:
         type: choice
         default: 'false'
         options: [ 'false', 'true', 'default' ]
-      adios_enable:
-        description: 'Enable ADIOS IO Scheduler Support'
-        required: true
-        type: boolean
-        default: 'true'
 
 jobs:
   build:
@@ -57,15 +52,16 @@ jobs:
       - name: Sync Xiaomi Source
         run: |
           mkdir kernel_workspace && cd kernel_workspace
-          # Sync Xiaomi Kernel Source
+          # Clone the repository directly into the workspace folder
           git clone --depth=1 https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git -b popsicle-w-oss common
-          
+
       - name: Setup KowSU (KOWX712 Logic)
         id: ksu_version
         if: github.event.inputs.ksu_type == 'kowsu'
         run: |
           cd kernel_workspace/common
           echo "📥 Integrating KowSU..."
+          # In this structure, the root is the kernel root
           KERNEL_DIR="$(pwd)" bash <(curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/master/kernel/setup.sh") master
           
           cd KernelSU
@@ -79,7 +75,7 @@ jobs:
         if: inputs.susfs_enable && github.event.inputs.ksu_type == 'kowsu'
         run: |
           cd kernel_workspace
-          git clone --depth=1 https://gitlab.com/simonpunk/susfs4ksu susfs4ksu -b gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
+          git clone --depth=1 https://github.com/cctv18/susfs4oki.git susfs4ksu -b oki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
           git clone --depth=1 https://github.com/yapixel/kernel_patches.git patches
 
           COMMON_DIR="$(pwd)/common"
@@ -87,106 +83,78 @@ jobs:
           PATCHES_DIR="$(pwd)/patches"
           PATCH_NAME="50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch"
 
-          # 1. Copy SuSFS source files
+          # Copy files to the identified root directories
           cp "$SUSFS_DIR/kernel_patches/fs/"* "$COMMON_DIR/fs/"
           cp "$SUSFS_DIR/kernel_patches/include/linux/"* "$COMMON_DIR/include/linux/"
           
-          # 2. Apply core SuSFS patch
           cd "$COMMON_DIR"
           patch -p1 -F 3 < "$SUSFS_DIR/kernel_patches/$PATCH_NAME" || echo "⚠️ Core SuSFS patch warning"
 
-          # 3. Apply KowSU specific enablement patch
           cd "$COMMON_DIR/KernelSU"
           cp "$PATCHES_DIR/kowsu/10_enable_susfs_for_ksu.patch" ./
           patch -p1 < 10_enable_susfs_for_ksu.patch || { echo "❌ KowSU SuSFS patch failed!"; exit 1; }
 
       - name: Inject Custom Configs into Defconfig
         run: |
+          # Xiaomi 15 uses a merged defconfig. We apply to the base gki_defconfig
           cd kernel_workspace/common
           DEFCONFIG="arch/arm64/configs/gki_defconfig"
           
-          # SuSFS Configs
           if [[ "${{ github.event.inputs.susfs_enable }}" == "true" ]]; then
-            {
-              echo "CONFIG_KSU_SUSFS=y"
-              echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y"
-              echo "CONFIG_KSU_SUSFS_SUS_PATH=y"
-              echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
-              echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y"
-              echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y"
-              echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
-              echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y"
-              echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y"
-              echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
-              echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
-              echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y"
-              echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y"
-              echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y"
-              echo "CONFIG_KSU_SUSFS_SUS_MAP=y"
-            } >> $DEFCONFIG
+            cat <<EOF >> $DEFCONFIG
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_MAP=y
+          EOF
           fi
 
-          # Network & BBR Configs
           if [[ "${{ github.event.inputs.better_net }}" == "true" ]]; then
-            {
-              echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y"
-              echo "CONFIG_NETFILTER_XT_SET=y"
-              echo "CONFIG_IP_SET=y"
-              echo "CONFIG_IP_SET_MAX=65534"
-              echo "CONFIG_IP_SET_HASH_IP=y"
-              echo "CONFIG_IP_SET_HASH_NET=y"
-              echo "CONFIG_IP6_NF_NAT=y"
-              echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y"
-            } >> $DEFCONFIG
+            echo "CONFIG_IP6_NF_NAT=y" >> $DEFCONFIG
+            echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> $DEFCONFIG
           fi
 
-          if [[ "${{ github.event.inputs.bbr_enable }}" != "false" ]]; then
-            {
-              echo "CONFIG_TCP_CONG_ADVANCED=y"
-              echo "CONFIG_TCP_CONG_BBR=y"
-              echo "CONFIG_TCP_CONG_CUBIC=y"
-              echo "CONFIG_TCP_CONG_BRUTAL=y"
-            } >> $DEFCONFIG
-            [[ "${{ github.event.inputs.bbr_enable }}" == "default" ]] && echo "CONFIG_DEFAULT_TCP_CONG=bbr" >> $DEFCONFIG
-          fi
-
-          # KowSU Core
           if [[ "${{ github.event.inputs.ksu_type }}" == "kowsu" ]]; then
             echo "CONFIG_KSU=y" >> $DEFCONFIG
             echo "CONFIG_KSU_KPROBES_HOOK=n" >> $DEFCONFIG
           fi
 
-          # ADIOS
-          if [[ "${{ github.event.inputs.adios_enable }}" == "true" ]]; then
-            echo "CONFIG_IOSCHED_ADIOS=y" >> $DEFCONFIG
-            echo "CONFIG_DEFAULT_ADIOS=y" >> $DEFCONFIG
-          fi
-
-      - name: Build Kernel via Kleaf (Bazel)
+      - name: Build Kernel via Xiaomi Bazel
         run: |
           cd kernel_workspace/common
-          # Xiaomi 6.12 source requires using the provided bazel wrapper
-          # We target the standard GKI distribution for aarch64
-          tools/bazel build --config=fast //common:kernel_aarch64_dist
+          # Using the specific popsicle build config found in your file list
+          python3 build_with_bazel.py -t popsicle perf
 
       - name: Package AnyKernel3
         id: create_zip
         run: |
           cd kernel_workspace
           git clone https://github.com/cctv18/AnyKernel3 --depth=1
-          # Kleaf output is usually in bazel-bin/common/kernel_aarch64/Image
-          # Using find to locate the Image reliably
-          find common/bazel-bin -name Image -exec cp {} AnyKernel3/ \;
+          
+          # Locating the Image in the bazel-out tree
+          IMAGE_PATH=$(find common/out -name Image -type f | head -n 1)
+          cp "$IMAGE_PATH" AnyKernel3/
           
           cd AnyKernel3
-          AK3_NAME="AnyKernel3-Xiaomi-Popsicle-KowSU-${{ env.KSUVER }}.zip"
+          AK3_NAME="AnyKernel3-Xiaomi15-KowSU-${{ env.KSUVER }}.zip"
           zip -r ../$AK3_NAME ./*
           echo "ak3name=$AK3_NAME" >> $GITHUB_OUTPUT
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v7
         with:
-          path: kernel_workspace/AnyKernel3-Xiaomi*.zip
+          path: kernel_workspace/AnyKernel3-Xiaomi15*.zip
           name: kernel-artifact
 
   release:
@@ -203,13 +171,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: Xiaomi-Popsicle-KowSU-r${{ needs.build.outputs.ksuver }}-${{ github.run_id }}
-          name: "Xiaomi Popsicle | 6.12.23 | KowSU ${{ needs.build.outputs.ksuver }}"
-          body: |
-            ### Build Information
-            - **Device**: Xiaomi Popsicle (Xiaomi 15 Series)
-            - **Kernel**: 6.12.23 (Android 16)
-            - **KowSU Version**: ${{ needs.build.outputs.ksuver }}
-            - **SuSFS**: ${{ github.event.inputs.susfs_enable }}
-            - **Network Enhancement**: ${{ github.event.inputs.better_net }}
+          tag_name: Xiaomi15-Popsicle-KowSU-r${{ needs.build.outputs.ksuver }}-${{ github.run_id }}
+          name: "Xiaomi 15 (Popsicle) | KowSU ${{ needs.build.outputs.ksuver }}"
+          body: "Build Date: $(date)\nKowSU: ${{ needs.build.outputs.ksuver }}\nSuSFS: ${{ github.event.inputs.susfs_enable }}"
           files: release_zips/*.zip
