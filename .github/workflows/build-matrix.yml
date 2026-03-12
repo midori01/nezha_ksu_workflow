@@ -290,7 +290,7 @@ jobs:
       # 5. Checkout this workflow repository
       # -----------------------------------------------------------------------
       - name: Checkout workflow repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           path: workflow-repo
           clean: false
@@ -650,7 +650,7 @@ jobs:
       # 15. Upload build artifact
       # -----------------------------------------------------------------------
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: kernel-${{ matrix.variant.name }}
           path: ${{ env.KERNEL_ZIP }}
@@ -678,10 +678,10 @@ jobs:
     steps:
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download all variant artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           pattern: kernel-*
           path: release-assets
