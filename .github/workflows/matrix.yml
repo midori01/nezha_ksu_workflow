@@ -41,9 +41,9 @@ on:
         default: "23"
         type: string
       os_patch_level:
-        description: "OS patch level (e.g. 2025-05)"
+        description: "OS patch level (e.g. 2025-05-exp)"
         required: true
-        default: "2025-05"
+        default: "2025-05-exp"
         type: string
       create_release:
         description: "Create GitHub Release"
