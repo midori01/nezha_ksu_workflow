@@ -109,20 +109,20 @@ jobs:
 
       - name: Resolve release tag
         id: release_tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUSFS_VERSION: ${{ steps.susfs_version.outputs.susfs_version }}
         run: |
-          # Find the highest existing rN suffix for this SuSFS version
-            HIGHEST=$(gh release list \
+          HIGHEST=$(gh release list \
             --repo "${{ github.repository }}" \
             --limit 100 \
             --json tagName \
             --jq "[.[] | select(.tagName | startswith(\"${SUSFS_VERSION}-r\")) | .tagName | ltrimstr(\"${SUSFS_VERSION}-r\") | tonumber] | max // 0")
 
-            SUSFS_BUILD_NUM=$(( HIGHEST + 1 ))
+          SUSFS_BUILD_NUM=$(( HIGHEST + 1 ))
 
-            echo "susfs_build_tag=${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}" >> "$GITHUB_OUTPUT"
-            echo "📌 Release tag: ${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}"
-          env:
-             GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "susfs_build_tag=${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}" >> "$GITHUB_OUTPUT"
+          echo "📌 Release tag: ${SUSFS_VERSION}-r${SUSFS_BUILD_NUM}"
 
   # ---------------------------------------------------------------------------
   # build — compile the kernel for each KSU variant in parallel
