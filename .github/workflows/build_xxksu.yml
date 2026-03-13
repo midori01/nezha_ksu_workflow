@@ -231,9 +231,13 @@ jobs:
             scripts/mkcompile_h
           echo "✅ mkcompile_h spoofed"
 
-          # 2. Spoof scripts/setlocalversion — comment out dynamic suffix, append hardcoded value.
-          sed -i 's|^echo "\$res"|#echo "$res"|' scripts/setlocalversion
-          echo 'echo "-android16-5-g6928909e3148-abogki444322847-4k"' >> scripts/setlocalversion
+          # 2. Spoof scripts/setlocalversion — replace entirely with a no-op that
+          #    outputs nothing, so CONFIG_LOCALVERSION is the sole suffix.
+          cat > scripts/setlocalversion << 'SETLOCALVERSION_EOF'
+          #!/bin/sh
+          echo ""
+          SETLOCALVERSION_EOF
+          chmod +x scripts/setlocalversion
           echo "✅ setlocalversion spoofed"
 
           # 3. Spoof init/Makefile — hardcode build-version and build-timestamp.
