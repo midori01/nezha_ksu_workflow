@@ -316,7 +316,7 @@ jobs:
             cp "${{ env.KERNEL_DIR }}/out/arch/arm64/boot/dtb" AnyKernel3/ || true
 
           cd AnyKernel3 && rm -rf .git .github
-          ZIP_NAME="AK3-GKI-${KERNEL_VERSION}-popsicle-xxksu-r${{ env.KSU_VERSION }}.zip"
+          ZIP_NAME="AK3-OKI-${KERNEL_VERSION}-popsicle-xxksu-r${{ env.KSU_VERSION }}.zip"
           zip -r9 "../$ZIP_NAME" .
           cd ..
 
@@ -344,7 +344,7 @@ jobs:
           Flash ZIP in Kernel Flasher or extract Image to patch boot.img manually."
 
           gh release create "popsicle-xxksu-${{ github.run_number }}" \
-            --title "GKI ${KERNEL_VERSION} popsicle xxKSU Build #${{ github.run_number }}" \
+            --title "OKI ${KERNEL_VERSION} popsicle xxKSU Build #${{ github.run_number }}" \
             --notes "$RELEASE_NOTES" \
             --repo "${{ github.repository }}" \
             "${{ env.KERNEL_ZIP }}"
