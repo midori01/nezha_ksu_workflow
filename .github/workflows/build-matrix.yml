@@ -359,7 +359,7 @@ jobs:
             echo "❌ Failed to determine KSU version for ${{ matrix.variant.label }}"
             exit 1
           fi
-          echo "📌 ${{ matrix.variant.label }} version: r$KSU_VERSION
+          echo "📌 ${{ matrix.variant.label }} version: r$KSU_VERSION"
 
           {
             echo "KSU_VERSION=$KSU_VERSION"
