@@ -500,76 +500,74 @@ jobs:
           export CROSS_COMPILE="${{ env.ARM64_TOOLCHAIN }}"
           export CROSS_COMPILE_COMPAT="${{ env.ARM32_TOOLCHAIN }}"
 
-          echo "📋 Available defconfigs:"
-          ls arch/arm64/configs/
+          DEFCONFIG="arch/arm64/configs/gki_defconfig"
+
+          # ── Networking / BBR / ipset configs ────────────────────────────
+          EXTRA_CONFIGS=(
+            CONFIG_TMPFS_XATTR=y
+            CONFIG_TMPFS_POSIX_ACL=y
+            CONFIG_IP_NF_TARGET_TTL=y
+            CONFIG_IP6_NF_TARGET_HL=y
+            CONFIG_IP6_NF_MATCH_HL=y
+            CONFIG_TCP_CONG_ADVANCED=y
+            CONFIG_TCP_CONG_BBR=y
+            CONFIG_NET_SCH_FQ=y
+            CONFIG_TCP_CONG_BIC=n
+            CONFIG_TCP_CONG_WESTWOOD=n
+            CONFIG_TCP_CONG_HTCP=n
+            CONFIG_DEFAULT_BBR=y
+            CONFIG_BPF_STREAM_PARSER=y
+            CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
+            CONFIG_NETFILTER_XT_SET=y
+            CONFIG_IP_SET=y
+            CONFIG_IP_SET_MAX=65534
+            CONFIG_IP_SET_BITMAP_IP=y
+            CONFIG_IP_SET_BITMAP_IPMAC=y
+            CONFIG_IP_SET_BITMAP_PORT=y
+            CONFIG_IP_SET_HASH_IP=y
+            CONFIG_IP_SET_HASH_IPMARK=y
+            CONFIG_IP_SET_HASH_IPPORT=y
+            CONFIG_IP_SET_HASH_IPPORTIP=y
+            CONFIG_IP_SET_HASH_IPPORTNET=y
+            CONFIG_IP_SET_HASH_IPMAC=y
+            CONFIG_IP_SET_HASH_MAC=y
+            CONFIG_IP_SET_HASH_NETPORTNET=y
+            CONFIG_IP_SET_HASH_NET=y
+            CONFIG_IP_SET_HASH_NETNET=y
+            CONFIG_IP_SET_HASH_NETPORT=y
+            CONFIG_IP_SET_HASH_NETIFACE=y
+            CONFIG_IP_SET_LIST_SET=y
+            CONFIG_IP6_NF_NAT=y
+            CONFIG_IP6_NF_TARGET_MASQUERADE=y
+          )
+
+          for cfg in "${EXTRA_CONFIGS[@]}"; do
+            key="${cfg%%=*}"
+            sed -i -E "s/.*${key}=.*$/# ${key} removed by CI/g" "$DEFCONFIG"
+            echo "$cfg" >> "$DEFCONFIG"
+          done
+
+          # ── KernelSU configs ─────────────────────────────────────────────
+          cat >> "$DEFCONFIG" << 'KSUEOF'
+CONFIG_KSU=y
+CONFIG_KSU_KPROBES_HOOK=n
+CONFIG_KSU_SUSFS=y
+CONFIG_KSU_SUSFS_SUS_PATH=y
+CONFIG_KSU_SUSFS_SUS_MOUNT=y
+CONFIG_KSU_SUSFS_SUS_KSTAT=y
+CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
+CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+CONFIG_KSU_SUSFS_ENABLE_LOG=y
+CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+CONFIG_KSU_SUSFS_SUS_SU=n
+CONFIG_DEBUG_INFO_BTF=n
+CONFIG_DEBUG_INFO_BTF_MODULES=n
+CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"
+KSUEOF
+
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 LD=ld.lld O=out gki_defconfig
-
-          cat << 'EOF' | sed 's/^[[:space:]]*//' >> out/.config
-          CONFIG_ARCH_QCOM=y
-          CONFIG_ARM64_VA_BITS=52
-          CONFIG_ARM64_PA_BITS=52
-          CONFIG_SCHED_MC=y
-          CONFIG_ENERGY_MODEL=y
-          CONFIG_CPU_FREQ=y
-          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
-          CONFIG_THERMAL=y
-          CONFIG_CMA=y
-          CONFIG_KPROBES=y
-          CONFIG_HAVE_KPROBES=y
-          CONFIG_TCP_CONG_BBR=y
-          CONFIG_NET_SCH_FQ=y
-          CONFIG_LTO_CLANG_THIN=y
-          CONFIG_IP_SET=y
-          CONFIG_NET_SCH_CAKE=y
-          CONFIG_KSU=y
-          CONFIG_KSU_KPROBES_HOOK=n
-          CONFIG_TMPFS_XATTR=y
-          CONFIG_TMPFS_POSIX_ACL=y
-          CONFIG_IP_NF_TARGET_TTL=y
-          CONFIG_IP6_NF_TARGET_HL=y
-          CONFIG_IP6_NF_MATCH_HL=y
-          CONFIG_TCP_CONG_ADVANCED=y
-          CONFIG_TCP_CONG_BIC=n
-          CONFIG_TCP_CONG_WESTWOOD=n
-          CONFIG_TCP_CONG_HTCP=n
-          CONFIG_BPF_STREAM_PARSER=y
-          CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y
-          CONFIG_NETFILTER_XT_SET=y
-          CONFIG_IP_SET_MAX=65534
-          CONFIG_IP_SET_BITMAP_IP=y
-          CONFIG_IP_SET_BITMAP_IPMAC=y
-          CONFIG_IP_SET_BITMAP_PORT=y
-          CONFIG_IP_SET_HASH_IP=y
-          CONFIG_IP_SET_HASH_IPMARK=y
-          CONFIG_IP_SET_HASH_IPPORT=y
-          CONFIG_IP_SET_HASH_IPPORTIP=y
-          CONFIG_IP_SET_HASH_IPPORTNET=y
-          CONFIG_IP_SET_HASH_IPMAC=y
-          CONFIG_IP_SET_HASH_MAC=y
-          CONFIG_IP_SET_HASH_NETPORTNET=y
-          CONFIG_IP_SET_HASH_NET=y
-          CONFIG_IP_SET_HASH_NETNET=y
-          CONFIG_IP_SET_HASH_NETPORT=y
-          CONFIG_IP_SET_HASH_NETIFACE=y
-          CONFIG_IP_SET_LIST_SET=y
-          CONFIG_IP6_NF_NAT=y
-          CONFIG_IP6_NF_TARGET_MASQUERADE=y
-          CONFIG_KSU_SUSFS=y
-          CONFIG_KSU_SUSFS_SUS_PATH=y
-          CONFIG_KSU_SUSFS_SUS_MOUNT=y
-          CONFIG_KSU_SUSFS_SUS_KSTAT=y
-          CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n
-          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
-          CONFIG_KSU_SUSFS_ENABLE_LOG=y
-          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
-          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
-          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
-          CONFIG_KSU_SUSFS_SUS_SU=n
-          CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"
-          CONFIG_DEBUG_INFO_BTF=n
-          CONFIG_DEBUG_INFO_BTF_MODULES=n
-          EOF
-
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 LD=ld.lld O=out olddefconfig
           echo "✅ Kernel configured"
 
