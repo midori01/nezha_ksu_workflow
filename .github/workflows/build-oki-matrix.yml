@@ -2,7 +2,7 @@ name: Build OKI Kernel — KSU Matrix + SuSFS
 
 # =============================================================================
 # Build System : make (Clang 19 r536225 + ARM GNU 14.3.rel1)
-# Variants     : KowSU | KernelSU (tiann) | ReSukiSU — parallel matrix
+# Variants     : KowSU | KSU (tiann) | ReSukiSU — parallel matrix
 # Source       : cctv18/android_kernel_common_oneplus_sm8850 (OKI)
 # Target       : OnePlus (sm8850) — android16 / 6.12
 # =============================================================================
@@ -62,6 +62,8 @@ env:
   DIST_DIR:        ${{ github.workspace }}/android-kernel/common/out
   SCRIPTS_REPO:    https://github.com/TheSillyOk/sh
   CCACHE_DIR:      ${{ github.workspace }}/.ccache
+  KERNEL_TYPE:     oki
+  DEVICE:          popsicle
 
 # =============================================================================
 jobs:
@@ -156,9 +158,9 @@ jobs:
             susfs_patch:    kowsu/10_enable_susfs_for_ksu.patch
             susfs_patch_src: patches_dir
 
-          # ── KernelSU (official / tiann) ────────────────────────────────
+          # ── KSU (official / tiann) ──────────────────────────────────────
           - name:           tiannksu
-            label:          KernelSU
+            label:          KSU
             enabled:        true
             ksu_owner:      tiann
             ksu_repo:       KernelSU
@@ -627,7 +629,8 @@ jobs:
           [ -f "$KERNEL_DIR/out/arch/arm64/boot/dtb.img" ] && cp "$KERNEL_DIR/out/arch/arm64/boot/dtb.img" AnyKernel3/
 
           cd AnyKernel3 && rm -rf .git .github
-          ZIP_NAME="AK3-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-${{ matrix.variant.label }}-r${KSU_VERSION}-SUSFS-${SUSFS_VER_CLEAN}.zip"
+          BUILD_DATE=$(date -u +%y%m%d)
+          ZIP_NAME="${{ matrix.variant.label }}_${{ env.DEVICE }}_${{ env.KERNEL_TYPE }}_${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}+${KSU_VERSION}-${BUILD_DATE}.zip"
           zip -r9 "../$ZIP_NAME" .
           cd ..
 
@@ -690,13 +693,13 @@ jobs:
           ### Variants
           | Variant    | ZIP |
           |------------|-----|
-          | KowSU      | \`AK3-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-KowSU-r*-SUSFS-*.zip\` |
-          | KernelSU   | \`AK3-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-KernelSU-r*-SUSFS-*.zip\` |
-          | ReSukiSU   | \`AK3-${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}-ReSukiSU-r*-SUSFS-*.zip\` |
+          | KowSU      | \`KowSU_popsicle_oki_${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}+*-*.zip\` |
+          | KSU        | \`KSU_popsicle_oki_${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}+*-*.zip\` |
+          | ReSukiSU   | \`ReSukiSU_popsicle_oki_${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}+*-*.zip\` |
 
           ### Sources
           - **KowSU:** https://github.com/KOWX712/KernelSU
-          - **KernelSU:** https://github.com/tiann/KernelSU
+          - **KSU:** https://github.com/tiann/KernelSU
           - **ReSukiSU:** https://github.com/ReSukiSU/ReSukiSU
           - **SuSFS:** https://gitlab.com/simonpunk/susfs4ksu
 
