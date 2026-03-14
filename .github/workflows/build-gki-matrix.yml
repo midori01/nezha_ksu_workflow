@@ -142,7 +142,7 @@ jobs:
           # ── KowSU ──────────────────────────────────────────────────────
           - name:           kowsu
             label:          KowSU
-            enabled:        true
+            enabled:        false
             ksu_owner:      KOWX712
             ksu_repo:       KernelSU
             ksu_branch:     master
