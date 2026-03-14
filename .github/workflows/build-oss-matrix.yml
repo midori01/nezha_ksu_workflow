@@ -491,7 +491,7 @@ jobs:
 
           make ARCH=arm64 LLVM=1 LLVM_IAS=1 LD=ld.lld O=out gki_defconfig
 
-          cat << 'EOF' >> out/.config
+          cat << 'EOF' | sed 's/^[[:space:]]*//' >> out/.config
           CONFIG_ARCH_QCOM=y
           CONFIG_ARM64_VA_BITS=52
           CONFIG_ARM64_PA_BITS=52
