@@ -131,6 +131,7 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    if: ${{ matrix.variant.enabled == true }}
 
     outputs:
       ksu_version: ${{ steps.ksu_version.outputs.ksu_version }}
@@ -138,9 +139,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        exclude:
-          - variant:
-              enabled: false
         variant:
           # ── KowSU ──────────────────────────────────────────────────────
           - name:           kowsu
