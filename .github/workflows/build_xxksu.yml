@@ -421,8 +421,7 @@ jobs:
           KERNEL_VERSION="${{ github.event.inputs.kernel_version }}.${{ github.event.inputs.sub_level }}"
           SOURCE_UPPER=$(echo "${{ matrix.source }}" | tr '[:lower:]' '[:upper:]')
 
-          git clone --depth=1 --branch=gki-2.0 \
-            https://github.com/WildKernels/AnyKernel3 AnyKernel3
+          git clone https://github.com/cctv18/AnyKernel3 --depth=1
 
           sed -i "s|kernel.string=.*|kernel.string=${SOURCE_UPPER} ${KERNEL_VERSION} - xxKSU r${{ env.KSU_VERSION }} for popsicle|" \
             AnyKernel3/anykernel.sh
