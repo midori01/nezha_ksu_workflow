@@ -597,9 +597,11 @@ jobs:
           START=$SECONDS
           echo "🔨 Starting Kleaf build — ${{ matrix.variant.label }} r$KSU_VERSION | SuSFS $SUSFS_VERSION"
 
-          tools/bazel run "${BUILD_FLAGS[@]}" \
-            //common:kernel_aarch64_dist \
-            -- --destdir="$DIST_DIR"
+          tools/bazel build "${BUILD_FLAGS[@]}" \
+            //common:kernel_aarch64
+
+          find "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64" -name "Image" | head -3
+          cp "$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image" "$DIST_DIR/Image"
 
           echo "BUILD_TIME=$((SECONDS - START))s" >> "$GITHUB_ENV"
           echo "✅ Build complete in $((SECONDS - START))s"
