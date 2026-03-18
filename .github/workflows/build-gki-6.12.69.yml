@@ -67,13 +67,12 @@ jobs:
           if [[ ${{ github.event.inputs.ksu_type }} == "resukisu" ]]; then
             curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
             echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%@cctv18"' >> ./common/arch/arm64/configs/gki_defconfig
-            cd ./KernelSU
-            KSU_VERSION=$(expr $(git rev-list --count main) + 30700 2>/dev/null || echo 114514)
+            # Get version without staying in KernelSU dir
+            KSU_VERSION=$(cd KernelSU && expr $(git rev-list --count main) + 30700 2>/dev/null || echo 114514)
           elif [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
             curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/refs/heads/main/kernel/setup.sh" | bash -s main
-            cd ./KernelSU
             KSU_VERSION=$(expr $(curl -sI "https://api.github.com/repos/tiann/KernelSU/commits?sha=main&per_page=1" | grep -i "link:" | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p') "+" 30000)
-            sed -i "s/DKSU_VERSION=16/DKSU_VERSION=${KSU_VERSION}/" kernel/Kbuild
+            sed -i "s/DKSU_VERSION=16/DKSU_VERSION=${KSU_VERSION}/" KernelSU/kernel/Kbuild
           fi
           echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
           echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
@@ -86,11 +85,12 @@ jobs:
           cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch ./common/
           cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
           cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-          cd ./common && patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
+          cd common && patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
           cd ..
-          if [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
+          if [[ ${{ github.event.inputs.ksu_type }} != "none" ]]; then
             cp ./susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
-            cd ./KernelSU && patch -p1 < 10_enable_susfs_for_ksu.patch || true
+            cd KernelSU && patch -p1 < 10_enable_susfs_for_ksu.patch || true
+            cd ..
           fi
 
       - name: Configure Kernel (Defconfig)
@@ -142,20 +142,21 @@ jobs:
           KCFLAGS+=" -no-canonical-prefixes -O2 -pipe -Wno-error -fno-stack-protector -D__ANDROID_COMMON_KERNEL__"
           export KCFLAGS
           
-          # Rust-Specific Flags (Passed to Rustc - This fixes your error)
+          # Rust-Specific Flags (Native Rustc syntax)
           export KRUSTFLAGS="--remap-path-prefix=$ROOT_REAL_PATH=."
 
-          # Build Environment Identity
+          # Build Metadata
           export KBUILD_BUILD_USER=kleaf
           export KBUILD_BUILD_HOST=build-host
-          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
+          export KBUILD_BUILD_TIMESTAMP="$(date)"
 
-          # Kernel make commands
+          # Prepare config
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- O=out gki_defconfig
           
-          # Final make including segregated flags
+          # Execute build with separate flags
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- \
-            CC="clang" LD="ld.lld" KCFLAGS="$KCFLAGS" KRUSTFLAGS="$KRUSTFLAGS" O=out Image
+            NM=llvm-nm OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
+            KCFLAGS="$KCFLAGS" KRUSTFLAGS="$KRUSTFLAGS" O=out Image
 
       - name: Package AnyKernel3
         id: create_zip
@@ -194,6 +195,6 @@ jobs:
           files: "*.zip"
           body: |
             ### 📱 Android 16 GKI 6.12 Build
-            - KernelSU: ${{ github.event.inputs.ksu_type }}
-            - SuSFS: ${{ github.event.inputs.susfs_enable }}
-            - Netfilter IPSet + BBR enabled.
+            - **KernelSU**: ${{ github.event.inputs.ksu_type }}
+            - **SuSFS**: ${{ github.event.inputs.susfs_enable }}
+            - **Netfilter**: IPSet + BBR enabled.
