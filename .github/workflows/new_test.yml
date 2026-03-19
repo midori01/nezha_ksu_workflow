@@ -1,4 +1,4 @@
-name: (新版米系/欧加真通用) 6.12.23 GKI内核 xxksu
+name: (New Xiaomi/OPPO-OnePlus-Realme Universal) 6.12.23 GKI Kernel
 
 env:
   TZ: Asia/Shanghai
@@ -10,8 +10,22 @@ env:
 on:
   workflow_dispatch:
     inputs:
+      ksu_type:
+        description: 'KernelSU variant (ReSukiSU / KSU (upstream) / No built-in KSU, default: ReSukiSU)'
+        required: true
+        type: choice
+        default: 'resukisu'
+        options:
+          - 'resukisu'
+          - 'ksu'
+          - 'none'
+      susfs_enable:
+        description: 'Enable SuSFS (enhances mount hiding; may slightly increase power consumption; disable if upstream update causes instability or if not needed)'
+        required: true
+        type: boolean
+        default: 'true'
       kernel_suffix:
-        description: '内核后缀(留空默认,开头别加连字符,勿加空格等影响指令运行的保留字符)'
+        description: 'Kernel suffix (leave blank for default; do not prefix with a hyphen; avoid spaces or reserved characters that could break commands)'
         required: false
         type: string
         default: ''
@@ -25,100 +39,163 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: 安装环境依赖+初始化源码仓库及llvm-clang19工具链
+      - name: Install dependencies + initialize source repo and llvm-clang19 toolchain
         run: |
           rm -rf kernel_workspace
           mkdir kernel_workspace
           cd kernel_workspace
-          echo "当前仓库：$GITHUB_REPOSITORY"
-          echo "当前分支：$GITHUB_REF_NAME"
-          
+          echo "Current repo: $GITHUB_REPOSITORY"
+          echo "Current branch: $GITHUB_REF_NAME"
+
           sudo apt-mark hold firefox &&
           sudo apt-mark hold libc-bin &&
           sudo apt purge man-db &&
           sudo rm -rf /var/lib/man-db/auto-update &&
           sudo apt update &&
           sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev libdw-dev &
-          #旧版完整指令：（由于经过验证大部分指令已内置于GitHub Action环境中，故进行精简）
-          #sudo apt-get install -y --no-install-recommends curl bison flex make binutils git perl gcc python3 python-is-python3 bc libssl-dev libelf-dev libdw-dev zip unzip ccache
-          
-          echo "正在克隆源码仓库..."
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip && 
-          unzip -q common.zip && 
-          mv "android_gki_kernel_common-android16-6.12-2025-06" common &&
-          rm -rf common.zip &
-          
-          echo "正在克隆llvm-clang19工具链..." &&
+
+          echo "Cloning source repository (Google official)..."
+          mkdir -p common &&
+          aria2c -s16 -x16 -k1M \
+            "https://android.googlesource.com/kernel/common/+archive/refs/heads/android16-6.12-2025-06.tar.gz" \
+            -o common.tar.gz &&
+          tar xzf common.tar.gz -C common &&
+          rm -f common.tar.gz &
+
+          echo "Fetching official clang-r536225 toolchain (Google official)..."
           mkdir -p clang19 &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip &&
-          unzip -q clang.zip -d clang19 &&
-          rm -rf clang.zip &
-          
-          echo "正在克隆Rust 1.82.0工具链..." &&
+          aria2c -s16 -x16 -k1M \
+            "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-6.12-2025-06/clang-r536225.tar.gz" \
+            -o clang.tar.gz &&
+          tar xzf clang.tar.gz -C clang19 &&
+          rm -f clang.tar.gz &
+
+          echo "Fetching official kernel build-tools (Google official)..."
+          git clone --depth=1 \
+            https://android.googlesource.com/kernel/prebuilts/build-tools \
+            build-tools-repo &&
+          mkdir -p build-tools &&
+          cp -r build-tools-repo/linux-x86/bin build-tools/bin &&
+          rm -rf build-tools-repo &
+
+          echo "Cloning Rust 1.82.0 toolchain..."
           mkdir -p rust &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip &&
+          aria2c -s16 -x16 -k1M \
+            https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip \
+            -o rust.zip &&
           unzip -q rust.zip -d rust &&
           rm -rf rust.zip &
-          
-          echo "正在克隆构建工具..." &&
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip &&
-          unzip -q build-tools.zip &&
-          rm -rf build-tools.zip &
-          
+
           wait
-          echo "所有源码及llvm-clang19工具链初始化完成！"
-          echo "正在去除 dirty 后缀..."
+          echo "All sources and llvm-clang19 toolchain initialized!"
+          echo "Stripping -dirty suffix..."
           for f in common/scripts/setlocalversion; do
             sed -i 's/ -dirty//g' "$f"
             sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
           done
 
 
-      - name: Setup KernelSU (xxKSU)
+      - name: Add KernelSU
         id: ksu_version
         run: |
-          cd kernel_workspace/common
-          rm -rf KernelSU drivers/kernelsu
-          git clone --depth=1 --branch=master \
-            https://github.com/backslashxx/KernelSU.git KernelSU
-          ln -sf ../KernelSU/kernel drivers/kernelsu
-          grep -q "kernelsu" drivers/Makefile || \
-            echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-          grep -q "kernelsu" drivers/Kconfig || \
-            sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          # Enter kernel workspace
+          cd kernel_workspace
+          if [[ ${{ github.event.inputs.ksu_type }} == "resukisu" ]]; then
+            echo "Configuring ReSukiSU..."
+            curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/refs/heads/main/kernel/setup.sh" | bash -s main
+            echo 'CONFIG_KSU_FULL_NAME_FORMAT="%TAG_NAME%-%COMMIT_SHA%@cctv18"' >> ./common/arch/arm64/configs/gki_defconfig
+            cd ./KernelSU
+            # Generate custom version number (based on commit count); fall back to 114514 on failure
+            KSU_VERSION=$(expr $(git rev-list --count main) + 30700 2>/dev/null || echo 114514)
+            # Store version number to GitHub environment variable
+            echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+            echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
+          elif [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
+            echo "Configuring upstream KernelSU (tiann/KernelSU)..."
+            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/refs/heads/main/kernel/setup.sh" | bash -s main
+            cd ./KernelSU
+            KSU_VERSION=$(expr $(curl -sI "https://api.github.com/repos/tiann/KernelSU/commits?sha=main&per_page=1" | grep -i "link:" | sed -n 's/.*page=\([0-9]*\)>; rel="last".*/\1/p') "+" 30000)
+            echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+            echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
+            sed -i "s/DKSU_VERSION=16/DKSU_VERSION=${KSU_VERSION}/" kernel/Kbuild
+          else
+            echo "No built-in KernelSU selected, skipping KernelSU configuration..."
+          fi
 
-          cd ..
-          git clone --depth=1 https://github.com/TheSillyOk/sh.git sh
-          KSU_VER=$(./sh/get_ksuver.sh "backslashxx" "KernelSU" "master" || echo "unknown")
-          echo "KSUVER=${KSU_VER}" >> $GITHUB_ENV
-          echo "ksuver=${KSU_VER}" >> $GITHUB_OUTPUT
-          echo "xxKSU ver: r${KSU_VER}"
-
+      - name: Apply KernelSU & SuSFS patches
+        if: inputs.susfs_enable
+        run: |
+          cd kernel_workspace
+          if [[ ${{ github.event.inputs.ksu_type }} != "none" ]]; then
+            echo "Applying SuSFS patches..."
+            git clone --depth=1 https://github.com/cctv18/susfs4oki.git susfs4ksu -b oki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}
+            cp ./susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch ./common/
+            cp ./susfs4ksu/kernel_patches/fs/* ./common/fs/
+            cp ./susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+            cd ./common
+            patch -p1 < 50_add_susfs_in_gki-${{ env.ANDROID_VERSION }}-${{ env.KERNEL_VERSION }}.patch || true
+            cd ..
+          else
+            echo "No built-in KernelSU selected, skipping SuSFS configuration..."
+          fi
+          if [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
+            echo "Applying patch for upstream KernelSU (tiann/KernelSU)..."
+            cp ./susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
+            cd ./KernelSU
+            patch -p1 < 10_enable_susfs_for_ksu.patch || true
+          fi
+          
+          
+      - name: Add SuSFS config options
+        if: inputs.susfs_enable
+        run: |
+          cd kernel_workspace
+          echo "CONFIG_KSU_SUSFS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
+          echo "CONFIG_KSU_SUSFS_SUS_MAP=y" >> ./common/arch/arm64/configs/gki_defconfig
+          
       - name: Add KSU & other config options
         run: |
           cd kernel_workspace
           echo "CONFIG_KSU=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_EXTRAS=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_ALLOWLIST_WORKAROUND=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_DEBUG=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_KPROBES_HOOK=n" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_LSM_SECURITY_HOOKS=" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED=y" >> ./common/arch/arm64/configs/gki_defconfig
+          if [[ "${{ github.event.inputs.susfs_enable }}" == "false" ]]; then
+            echo "CONFIG_KSU_SUSFS=n" >> ./common/arch/arm64/configs/gki_defconfig
+          fi
+          # Add support for Mountify (backslashxx/mountify) module
           echo "CONFIG_TMPFS_XATTR=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> ./common/arch/arm64/configs/gki_defconfig
+          # Enable O2 compiler optimization
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> ./common/arch/arm64/configs/gki_defconfig
+          # Disable defconfig check
           sed -i 's/check_defconfig//' ./common/build.config.gki
+          # Skip unnecessary installation of uapi standard headers to usr/include; saves build time
           echo "CONFIG_HEADERS_INSTALL=n" >> ./common/arch/arm64/configs/gki_defconfig
+          # Rust config for 6.12 kernel
           echo "CONFIG_RUST=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_ANDROID_BINDER_IPC_RUST=m" >> ./common/arch/arm64/configs/gki_defconfig
-          echo "CONFIG_GENDWARFKSYMS=n" >> ./common/arch/arm64/configs/gki_defconfig
-
+          
       - name: Enable enhanced network feature configs
         run: |
           cd kernel_workspace
+          # Enable enhanced Netfilter firewall extension modules; support address-type-based match rules;
+          # enable IP set support; improve firewall rule flexibility; support more complex traffic filtering
           echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_NETFILTER_XT_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
+          # Enable IP set framework and its various data structure implementations;
+          # provides efficient large-scale IP address management; improves firewall rule processing
+          # efficiency; reduces memory usage
           echo "CONFIG_IP_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP_SET_MAX=65534" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP_SET_BITMAP_IP=y" >> ./common/arch/arm64/configs/gki_defconfig
@@ -137,37 +214,82 @@ jobs:
           echo "CONFIG_IP_SET_HASH_NETPORT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP_SET_HASH_NETIFACE=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP_SET_LIST_SET=y" >> ./common/arch/arm64/configs/gki_defconfig
+          # Enable IPv6 network address translation
           echo "CONFIG_IP6_NF_NAT=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> ./common/arch/arm64/configs/gki_defconfig
+          # On some devices, vintf compatibility checks show "Your device has run into a problem" when
+          # CONFIG_IP6_NF_NAT is enabled. A config fix patch is applied here to hide CONFIG_IP6_NF_NAT=y
+          # from vintf at compile time without affecting the compiled functionality.
           cd common
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/other_patch/config.patch
           patch -p1 -F 3 < config.patch || true
 
       - name: Add BBR and other congestion control algorithms
         run: |
+          echo "Adding BBR and other congestion control algorithms..."
           cd kernel_workspace
+          # Enable TCP congestion control advanced selector (required)
           echo "CONFIG_TCP_CONG_ADVANCED=y" >> ./common/arch/arm64/configs/gki_defconfig
+            ################################################################################################################################
+            # BBR: A bandwidth-based congestion control algorithm that models the network directly instead
+            # of using loss/delay signals to infer congestion, actively avoiding true network congestion.
+            # Offers high throughput, low latency, and loss resilience. However on mobile devices, continuous
+            # bandwidth/RTT probing and high-frequency packet sending increases CPU and radio module power
+            # draw, leading to higher power consumption and heat.
+            # Mobile base station buffers are typically shallow (~50ms), so BBR's ProbeRTT phase may cause
+            # sudden throughput drops; network switches (WiFi->5G) require re-probing, adding latency or
+            # causing rate oscillation (brief stutters). BBR also exhibits RTT unfairness and can be overly
+            # aggressive against loss-based flows in mixed environments (e.g. BBR + CUBIC co-existence),
+            # starving other applications' bandwidth (e.g. background updates impacting foreground video).
+            # Although BBR reduces queuing delay, resists packet loss, and achieves high bandwidth
+            # utilization, Android does not use BBR by default due to its power cost and rate instability.
+            # Instead it uses CUBIC, which strikes the best balance between throughput, stability,
+            # compatibility, and efficiency. Consider carefully whether you actually need BBR before enabling.
+            ################################################################################################################################
           echo "CONFIG_TCP_CONG_BBR=y" >> ./common/arch/arm64/configs/gki_defconfig
+            # CUBIC: Android's default TCP congestion control algorithm. Best balance of throughput,
+            # stability, compatibility, and energy efficiency. High compatibility and fairness, strong
+            # resistance to network fluctuations, low computational overhead. Preferred for most mobile
+            # scenarios.
           echo "CONFIG_TCP_CONG_CUBIC=y" >> ./common/arch/arm64/configs/gki_defconfig
+            # VEGAS: A delay-based congestion control algorithm. Treats an increase in RTT as a sign of
+            # congestion; grows the congestion window when RTT decreases and shrinks it when RTT increases.
           echo "CONFIG_TCP_CONG_VEGAS=y" >> ./common/arch/arm64/configs/gki_defconfig
+            # New Vegas: An improved Vegas with better RTT measurement and competition fairness.
+            # More accurate congestion detection; improved coexistence with Reno/CUBIC.
           echo "CONFIG_TCP_CONG_NV=y" >> ./common/arch/arm64/configs/gki_defconfig
+            # Westwood+: Dynamically sets congestion window and slow-start threshold based on bandwidth
+            # estimation (ACK arrival rate). Fast recovery; suited for wireless networks
+            # (distinguishes congestion loss from wireless loss).
           echo "CONFIG_TCP_CONG_WESTWOOD=y" >> ./common/arch/arm64/configs/gki_defconfig
+            # HTCP: A loss-based algorithm using AIMD to control the congestion window. Dynamically
+            # adjusts the growth factor based on RTT; combines delay and loss signals.
+            # Optimized for high-latency, high-speed networks.
           echo "CONFIG_TCP_CONG_HTCP=y" >> ./common/arch/arm64/configs/gki_defconfig
+            # Brutal: Maximizes throughput via active probing and aggressive bandwidth seizure. No
+            # congestion window cap; does not reduce window on mild loss (<20%); avoids BBR-style
+            # ProbeRTT phases; maintains a consistently high send rate. In co-existence with Reno/CUBIC,
+            # Brutal can seize 90%+ of bandwidth via high-frequency packet sending. Suited for high-loss
+            # weak-network environments (e.g. public Wi-Fi, cellular) and uplink-sensitive use cases such
+            # as live streaming or cloud gaming where throughput takes priority over latency. Improves
+            # weak-network throughput and counters ISP QoS throttling. However, TCP Brutal only works
+            # correctly when the application explicitly sets bandwidth parameters per TCP connection;
+            # most Android apps do not support this, so do NOT set TCP Brutal as the default algorithm.
           echo "CONFIG_TCP_CONG_BRUTAL=y" >> ./common/arch/arm64/configs/gki_defconfig
           echo "CONFIG_DEFAULT_TCP_CONG=cubic" >> ./common/arch/arm64/configs/gki_defconfig
 
-      - name: 添加制作名称
+      - name: Set build name / kernel version suffix
         run: |
           cd kernel_workspace
-          echo "替换内核版本后缀..."
+          echo "Replacing kernel version suffix..."
           if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
-            echo "当前内核版本后缀：${{ github.event.inputs.kernel_suffix }}"
+            echo "Current kernel version suffix: ${{ github.event.inputs.kernel_suffix }}"
             for f in ./common/scripts/setlocalversion; do
               sed -i "\$s|echo \"\\\$res\"|echo \"-${{ github.event.inputs.kernel_suffix }}\"|" "$f"
             done
             sudo sed -i 's/-4k/-${{ github.event.inputs.KERNEL_SUFFIX }}/g' ./common/arch/arm64/configs/gki_defconfig
           else
-            echo "当前内核版本后缀：${{ env.KERNEL_NAME }}"
+            echo "Current kernel version suffix: ${{ env.KERNEL_NAME }}"
             for f in ./common/scripts/setlocalversion; do
               sed -i "\$s|echo \"\\\$res\"|echo \"-${{ env.KERNEL_NAME }}\"|" "$f"
             done
@@ -176,7 +298,7 @@ jobs:
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
           echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
            
-      - name: 构建内核
+      - name: Build kernel
         run: |
           WORKDIR="$(pwd)"
           export PATH="$WORKDIR/kernel_workspace/clang19/bin:$PATH"
@@ -187,69 +309,72 @@ jobs:
           LLD_VERSION="$($CLANG_DIR/ld.lld --version | head -n 1)"
           RUSTC_VERSION="$(rustc -V 2>/dev/null | head -n1)"
           BINDGEN_VERSION="$(bindgen --version 2>/dev/null | head -n1)"
-          echo "编译器信息:"
-          echo "Clang版本: $CLANG_VERSION"
-          echo "LLD版本: $LLD_VERSION"
-          echo "Rustc版本: $RUSTC_VERSION"
-          echo "Bindgen版本: $BINDGEN_VERSION"
-          pahole_version=$(pahole --version 2>/dev/null | head -n1); [ -z "$pahole_version" ] && echo "pahole版本：未安装" || echo "pahole版本：$pahole_version"
+          echo "Compiler info:"
+          echo "Clang version: $CLANG_VERSION"
+          echo "LLD version: $LLD_VERSION"
+          echo "Rustc version: $RUSTC_VERSION"
+          echo "Bindgen version: $BINDGEN_VERSION"
+          pahole_version=$(pahole --version 2>/dev/null | head -n1); [ -z "$pahole_version" ] && echo "pahole: not installed" || echo "pahole version: $pahole_version"
           
           cd kernel_workspace/common
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
           chmod 777 ./*.so
-          export FAKESTAT="2025-05-25 12:00:00"
-          export FAKETIME="@2025-05-25 13:00:00"
+          export FAKESTAT="2025-09-12 04:57:41"
+          export FAKETIME="@2025-09-12 04:57:41"
           echo "FAKESTAT=$FAKESTAT" >> $GITHUB_ENV
           echo "FAKETIME=$FAKETIME" >> $GITHUB_ENV
           SO_DIR=$(pwd)
           export PRELOAD_LIBS="$SO_DIR/libfakestat.so $SO_DIR/libfaketimeMT.so"
           export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
-          #创建 CC (编译器) 包装器
+          # Create CC (compiler) wrapper
           echo '#!/bin/bash' > cc-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
           echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper
           echo '$REAL_CLANG_PATH "$@"' >> cc-wrapper
-          #创建 LD (链接器) 包装器
+          # Create LD (linker) wrapper
           echo '#!/bin/bash' > ld-wrapper
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
           echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
           echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
           echo 'ld.lld "$@"' >> ld-wrapper
           
-          # 测试时间劫持测试是否正常工作
-          echo "--- [Wrapper Test] 正在创建通用的时间劫持测试脚本 ---"
+          # Test whether the time hijack wrappers are working correctly
+          echo "--- [Wrapper Test] Creating generic time hijack test script ---"
           echo '#!/bin/bash' > test-wrapper.sh
           echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> test-wrapper.sh
           echo 'export FAKESTAT="'$FAKESTAT'"' >> test-wrapper.sh
           echo 'export FAKETIME="'$FAKETIME'"' >> test-wrapper.sh
-          echo 'echo ">>> Wrapper 内部环境检查完毕."' >> test-wrapper.sh
-          echo 'exec "$@"' >> test-wrapper.sh # 执行所有传入的参数
+          echo 'echo ">>> Wrapper internal environment check complete."' >> test-wrapper.sh
+          echo 'exec "$@"' >> test-wrapper.sh # Execute all passed arguments
           chmod +x test-wrapper.sh
-          echo "--- [Wrapper Test] 正在测试 (date) 命令 ---"
+          echo "--- [Wrapper Test] Testing (date) command ---"
           ./test-wrapper.sh date
-          echo "--- [Wrapper Test] 正在测试 (stat) 命令 ---"
+          echo "--- [Wrapper Test] Testing (stat) command ---"
           ./test-wrapper.sh stat ./Makefile
-          echo "--- [Wrapper Test] 测试完毕 ---"
+          echo "--- [Wrapper Test] Test complete ---"
           chmod +x cc-wrapper ld-wrapper
-          echo "--- 编译前环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
-          echo "--- 编译前环境文件时间戳: ---"
+          echo "--- Pre-build environment time: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
+          echo "--- Pre-build environment file timestamp: ---"
           LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
           
-          # 6.12内核make编译核心配置：
-          # 1. 重映射物理路径 (由于6.12内核引入了Rust代码，计算内核符号版本的工具变成了gendwarfksyms，而gendwarfksyms无法正确预处理绝对路径，故我们需要手动把绝对路径重映射为相对路径，否则内核符号校验值会大面积出错)
+          # 6.12 kernel make core configuration:
+          # 1. Remap physical paths (the 6.12 kernel introduced Rust code; the symbol versioning tool
+          #    changed to gendwarfksyms, which cannot correctly preprocess absolute paths. We must manually
+          #    remap absolute paths to relative paths, otherwise kernel symbol checksums will be wrong.)
           COMMON_REAL_PATH=$(pwd -P)
           ROOT_REAL_PATH=$(dirname "$COMMON_REAL_PATH")
           KCFLAGS+=" -fdebug-prefix-map=$ROOT_REAL_PATH=."
           KCFLAGS+=" -fmacro-prefix-map=$ROOT_REAL_PATH=."
           KCFLAGS+=" -ffile-prefix-map=$ROOT_REAL_PATH=."
-          # 2. 声明Rust等工具（此处若不进行声明，内核编译前的Rust环境预检测脚本scripts/rust_is_available.sh会检测失败，导致内核无法正常开启Rust代码编译）
+          # 2. Declare Rust and related tools (without this, the pre-build Rust environment check script
+          #    scripts/rust_is_available.sh will fail, preventing Rust code from being compiled.)
           export RUSTC="rustc"
           export BINDGEN="bindgen"
           export CC="clang"
           export LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang19/lib"
-          # 3. 配置KCFLAGS
+          # 3. Configure KCFLAGS
           KCFLAGS+=" -no-canonical-prefixes"
           KCFLAGS+=" -O2"
           KCFLAGS+=" -pipe"
@@ -257,7 +382,7 @@ jobs:
           KCFLAGS+=" -fno-stack-protector"
           KCFLAGS+=" -D__ANDROID_COMMON_KERNEL__"
           export KCFLAGS
-          # 4. 配置其他工具及选项（非必须，防错冗余）
+          # 4. Configure other tools and options (not strictly required; added for redundancy/safety)
           export HOSTCC=clang
           export LD="ld.lld"
           export HOSTLD=ld.lld
@@ -266,10 +391,16 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export LD=ld.lld HOSTLD=ld.lld AR=llvm-ar NM=llvm-nm AS=clang READELF=llvm-readelf
           export OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump OBJSIZE=llvm-size STRIP=llvm-strip
-          # 5. 编译前运行官方环境配置脚本
+          # 5. Run official environment setup script before building
           source "./_setup_env.sh" 2>/dev/null || true
+          # 6. Spoof build identity and timestamp (injected directly via KBUILD variables,
+          #    which take priority over any time-hijack preload library)
+          export KBUILD_BUILD_USER=kleaf
+          export KBUILD_BUILD_HOST=build-host
+          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
           
-          #在构建内核的同时清除不必要的.NET, Android NDK, Haskell, CodeQL运行库，清理空间且不阻塞后续步骤运行
+          # Clean up unnecessary .NET, Android NDK, Haskell, CodeQL runtimes in parallel with the kernel
+          # build to free disk space without blocking subsequent steps
           sudo rm -rf /usr/share/dotnet &
           sudo rm -rf /usr/local/lib/android &
           sudo rm -rf /opt/ghc &
@@ -278,15 +409,15 @@ jobs:
           export CC="$(pwd)/cc-wrapper" && export LD="$(pwd)/ld-wrapper" &&
           make -j$(nproc --all) LLVM=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper" OBJCOPY="llvm-objcopy" O=out Image
           
-          # 编译后时间劫持二次校验
-          echo "--- 编译后环境时间: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
-          echo "--- 编译后环境文件时间戳: ---"
+          # Post-build time hijack secondary verification
+          echo "--- Post-build environment time: $(LD_PRELOAD=$PRELOAD_LIBS date) ---"
+          echo "--- Post-build environment file timestamp: ---"
           LD_PRELOAD=$PRELOAD_LIBS stat ./Makefile
-          echo "内核编译完成！"
-          echo "编译后空间:"
+          echo "Kernel build complete!"
+          echo "Post-build disk space:"
           df -h
 
-      - name: 克隆 AnyKernel3 并打包
+      - name: Clone AnyKernel3 and package
         id: create_zip
         run: |
           cd kernel_workspace
@@ -295,10 +426,16 @@ jobs:
           cd AnyKernel3
           cp ../common/out/arch/arm64/boot/Image ./Image
           if [[ ! -f ./Image ]]; then
-            echo "未找到内核镜像文件，构建可能出错"
+            echo "Kernel image not found; build may have failed"
             exit 1
           fi
-          KSU_TYPENAME="xxKSU"
+          if [[ ${{ github.event.inputs.ksu_type }} == "resukisu" ]]; then
+            KSU_TYPENAME="ReSukiSU"
+          elif [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
+            KSU_TYPENAME="KSU"
+          else
+            KSU_TYPENAME="none"
+          fi
           if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
             AK3_NAME=AnyKernel3_${KSU_TYPENAME}_${{ env.KSUVER }}_${{ env.KERNEL_VERSION }}_${{ github.event.inputs.kernel_suffix }}.zip
           else
@@ -307,7 +444,7 @@ jobs:
           zip -r ../$AK3_NAME ./*
           echo "ak3name=$AK3_NAME" >> $GITHUB_OUTPUT
           
-          #为AK3添加注释（调试信息）
+          # Append debug info comment to AK3 zip
           CLEAN_SUB_VERSION="${{ env.SUB_VERSION }}"
           CLEAN_SUB_VERSION="${CLEAN_SUB_VERSION%_mtk}"
           if [[ -n "${{ github.event.inputs.kernel_suffix }}" ]]; then
@@ -325,14 +462,13 @@ jobs:
           echo "Kernel Ver: $FULL_VERSION" >> ./ak3.log
           echo "KSU Branch: ${KSU_TYPENAME}" >> ./ak3.log
           echo "KSU Ver: ${KSUVER}" >> ./ak3.log
-          echo "susfs: disabled" >> ./ak3.log
+          echo "susfs: ${{ github.event.inputs.susfs_enable }}" >> ./ak3.log
           echo "IPset+BBR: enabled" >> ./ak3.log
           zip -z ../$AK3_NAME < ./ak3.log
 
-      - name: 上传 ZIP 工件
+      - name: Upload ZIP artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ steps.create_zip.outputs.ak3name }}
           path: ${{ github.workspace }}/kernel_workspace/AnyKernel*.zip
           archive: false
 
@@ -345,13 +481,14 @@ jobs:
       actions: read
       
     steps:
-      - name: 下载 ZIP 工件
+      - name: Download ZIP artifact
         uses: actions/download-artifact@v8
         with:
           name: ${{ needs.build.outputs.ak3name }}
           path: ./release_zips
+          skip-decompress: true
 
-      - name: 设置环境变量
+      - name: Set environment variables
         run: |
           CLEAN_SUB_VERSION="${{ env.SUB_VERSION }}"
           CLEAN_SUB_VERSION="${CLEAN_SUB_VERSION%_mtk}"
@@ -370,32 +507,39 @@ jobs:
           echo "TIME_FORM=$TIME_FORM" >> $GITHUB_ENV
           TAG_HEAD="OPPO-OPlus-Realme-build"
           echo "TAG_HEAD=$TAG_HEAD" >> $GITHUB_ENV
-          echo "KSU_TYPENAME=xxKSU" >> $GITHUB_ENV
+          if [[ ${{ github.event.inputs.ksu_type }} == "resukisu" ]]; then
+            KSU_TYPENAME="ReSukiSU"
+          elif [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
+            KSU_TYPENAME="KSU"
+          else
+            KSU_TYPENAME="No built-in KSU"
+          fi
+          echo "KSU_TYPENAME=$KSU_TYPENAME" >> $GITHUB_ENV
          
-      - name: 创建发布
+      - name: Create release
         id: create_release
-        uses: softprops/action-gh-release@v2.5.0
+        uses: softprops/action-gh-release@v2.6.1
         with:
           tag_name: "${{ env.TAG_HEAD }}-${{ env.TIME }}"
           name: "${{ env.TAG_HEAD }}-${{ env.FULL_VERSION }}"
           body: |
-            ### 📱 欧加真米 ${{ env.KSU_TYPENAME }} sm8850 通用内核 | 构建信息
-            - 内核版本号: ${{ env.FULL_VERSION }}
-            - 编译时间: ${{ env.TIME_FORM }}
-            - 机型：欧加真骁龙8E Gen5通用 ${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }} 内核（基于 AOSP 官方 android16-6.12-2025-06 源码分支）
-            - KSU分支：${{ env.KSU_TYPENAME }}
-            - susfs支持：未启用
-            - 网络功能增强：已启用
-            - BBR/Brutal 等拥塞控制算法支持：已启用
-            - KSU原版管理器下载：[KernelSU](https://github.com/tiann/KernelSU/releases)
-            ### ⏫️ 更新内容：
-            - 更新${{ env.KSU_TYPENAME }}至最新版本（${{ needs.build.outputs.ksuver }}）
-            - (预留)
-            ### 📋 安装方法 | Installation Guide
-            1. 若你的手机已经安装了第三方Recovery（如TWRP)，可下载对应机型的AnyKernel刷机包后进入Recovery模式，通过Recovery刷入刷机包后重启设备；
-            2. 若你的手机之前已有 root 权限，可在手机上安装[HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher/releases)，在HorizonKernelFlasher中刷入AnyKernel刷机包并重启；
-            5. 由于KernelSU上游更新了元模块功能，最新版KSU管理器需要配合元模块(metamodule)才能正常挂载模块。目前的元模块包括[meta overlayfs](https://github.com/KernelSU-Modules-Repo/meta-overlayfs), [mountify](https://github.com/backslashxx/mountify), [meta magicmount](https://github.com/7a72/meta-magic_mount/), [meta magicmount rs](https://github.com/Tools-cx-app/meta-magic_mount/), [hybrid mount](https://github.com/YuzakiKokuban/meta-hybrid_mount)等。若你是第一次使用KSU或刚从旧版KSU管理器升级至新版，请先安装一个元模块，这样其他涉及系统挂载的模块才能正常运行；
-            #### ※※※刷写内核有风险，为防止出现意外导致手机变砖，在刷入内核前请务必用[KernelFlasher](https://github.com/capntrips/KernelFlasher)等软件备份boot等关键启动分区!※※※
+            ### 📱 OPPO/OnePlus/Realme/Xiaomi ${{ env.KSU_TYPENAME }} sm8850 Universal Kernel | Build Info
+            - Kernel version: ${{ env.FULL_VERSION }}
+            - Build time: ${{ env.TIME_FORM }}
+            - Device: OPPO/OnePlus/Realme/Xiaomi Snapdragon 8 Elite Gen5 universal ${{ env.KERNEL_VERSION }}.${{ env.SUB_VERSION }} kernel (based on AOSP official android16-6.12-2025-06 source branch)
+            - KSU variant: ${{ env.KSU_TYPENAME }}
+            - SuSFS support: ${{ github.event.inputs.susfs_enable }}
+            - Enhanced network features: enabled
+            - BBR/Brutal and other congestion control algorithms: enabled
+            - KSU upstream manager download: [KernelSU](https://github.com/tiann/KernelSU/releases)
+            ### ⏫️ Changelog:
+            - Updated ${{ env.KSU_TYPENAME }} to latest version (${{ needs.build.outputs.ksuver }})
+            - (reserved)
+            ### 📋 Installation Guide
+            1. If your device already has a custom recovery (e.g. TWRP), download the AnyKernel zip for your device, boot into recovery, flash the zip, then reboot.
+            2. If your device already has root access, install [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher/releases) on your phone, flash the AnyKernel zip through it, and reboot.
+            5. KernelSU upstream has added meta-module support; the latest KSU manager requires a meta-module to mount modules correctly. Current meta-modules include [meta overlayfs](https://github.com/KernelSU-Modules-Repo/meta-overlayfs), [mountify](https://github.com/backslashxx/mountify), [meta magicmount](https://github.com/7a72/meta-magic_mount/), [meta magicmount rs](https://github.com/Tools-cx-app/meta-magic_mount/), [hybrid mount](https://github.com/YuzakiKokuban/meta-hybrid_mount), etc. If you are using KSU for the first time or just upgraded from an older KSU manager, please install a meta-module first so that other system-mount modules work correctly.
+            #### ※※※ Flashing a kernel carries risk. To avoid bricking your device, always back up your boot and other critical partitions with [KernelFlasher](https://github.com/capntrips/KernelFlasher) or similar tools before flashing! ※※※
           draft: false
           prerelease: false
           files: |
