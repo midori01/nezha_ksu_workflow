@@ -1,4 +1,4 @@
-name: (New Xiaomi/OPPO-OnePlus-Realme Universal) 6.12.23 GKI Kernel Test
+name: (New Xiaomi/OPPO-OnePlus-Realme Universal) 6.12.23 GKI Kernel
 
 env:
   TZ: Asia/Shanghai
@@ -278,6 +278,9 @@ jobs:
           export PATH="${{ env.CLANG_BIN }}:$PATH"
           export PATH="$WORKDIR/kernel_workspace/build-tools/bin:$PATH"
           export PATH="$WORKDIR/kernel_workspace/rust/bin:$PATH"
+          # Make libc++.so from the Google clang package available to pahole and other
+          # build-tools binaries that are dynamically linked against it
+          export LD_LIBRARY_PATH="${{ env.CLANG_LIB }}:$LD_LIBRARY_PATH"
           export CLANG_DIR="${{ env.CLANG_BIN }}"
           CLANG_VERSION="$(${{ env.CLANG_BIN }}/clang --version | head -n 1)"
           LLD_VERSION="$(${{ env.CLANG_BIN }}/ld.lld --version | head -n 1)"
