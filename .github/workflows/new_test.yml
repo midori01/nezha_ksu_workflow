@@ -1,4 +1,4 @@
-name: (New Xiaomi/OPPO-OnePlus-Realme Universal) 6.12.23 GKI Kernel Test
+name: (New Xiaomi/OPPO-OnePlus-Realme Universal) 6.12.23 GKI Kernel
 
 env:
   TZ: Asia/Shanghai
@@ -41,71 +41,60 @@ jobs:
     steps:
       - name: Install dependencies + initialize source repo and llvm-clang19 toolchain
         run: |
-          rm -rf kernel_workspace
-          mkdir kernel_workspace
-          cd kernel_workspace
+          KW="$GITHUB_WORKSPACE/kernel_workspace"
+          rm -rf "$KW"
+          mkdir -p "$KW"
           echo "Current repo: $GITHUB_REPOSITORY"
           echo "Current branch: $GITHUB_REF_NAME"
 
-          sudo apt-mark hold firefox &&
-          sudo apt-mark hold libc-bin &&
-          sudo apt purge man-db &&
-          sudo rm -rf /var/lib/man-db/auto-update &&
-          sudo apt update &&
-          sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev libdw-dev &
+          sudo apt-mark hold firefox
+          sudo apt-mark hold libc-bin
+          sudo apt purge man-db
+          sudo rm -rf /var/lib/man-db/auto-update
+          sudo apt update
+          sudo apt-get install -y --no-install-recommends binutils python-is-python3 libssl-dev libelf-dev libdw-dev
 
-          echo "Cloning source repository (Google official)..."
-          mkdir -p common &&
+          echo "--- Fetching kernel source (Google official) ---"
+          mkdir -p "$KW/common"
           aria2c -s16 -x16 -k1M \
             "https://android.googlesource.com/kernel/common/+archive/refs/heads/android16-6.12-2025-06.tar.gz" \
-            -o common.tar.gz &&
-          tar xzf common.tar.gz -C common &&
-          rm -f common.tar.gz &
+            -o "$KW/common.tar.gz"
+          tar xzf "$KW/common.tar.gz" -C "$KW/common"
+          rm -f "$KW/common.tar.gz"
+          echo "Kernel source: OK ($(ls $KW/common | wc -l) entries)"
 
-          # clang prebuilts repo uses 'main', not the kernel branch name
-          echo "Fetching official clang-r536225 toolchain (Google official)..."
-          mkdir -p clang19 &&
+          echo "--- Fetching clang-r536225 (Google official, main branch) ---"
+          mkdir -p "$KW/clang19"
           aria2c -s16 -x16 -k1M \
             "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz" \
-            -o clang.tar.gz &&
-          tar xzf clang.tar.gz -C clang19 &&
-          rm -f clang.tar.gz &
+            -o "$KW/clang.tar.gz"
+          tar xzf "$KW/clang.tar.gz" -C "$KW/clang19"
+          rm -f "$KW/clang.tar.gz"
+          echo "Clang: OK ($(ls $KW/clang19 | wc -l) entries)"
 
-          echo "Fetching official kernel build-tools (Google official)..."
+          echo "--- Fetching kernel build-tools (Google official) ---"
           git clone --depth=1 \
             https://android.googlesource.com/kernel/prebuilts/build-tools \
-            build-tools-repo &&
-          mkdir -p build-tools &&
-          cp -r build-tools-repo/linux-x86/bin build-tools/bin &&
-          rm -rf build-tools-repo &
+            "$KW/build-tools-repo"
+          mkdir -p "$KW/build-tools"
+          cp -r "$KW/build-tools-repo/linux-x86/bin" "$KW/build-tools/bin"
+          rm -rf "$KW/build-tools-repo"
+          echo "build-tools: OK ($(ls $KW/build-tools/bin | wc -l) entries)"
 
-          echo "Cloning Rust 1.82.0 toolchain..."
-          mkdir -p rust &&
+          echo "--- Fetching Rust 1.82.0 toolchain ---"
+          mkdir -p "$KW/rust"
           aria2c -s16 -x16 -k1M \
             https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip \
-            -o rust.zip &&
-          unzip -q rust.zip -d rust &&
-          rm -rf rust.zip &
+            -o "$KW/rust.zip"
+          unzip -q "$KW/rust.zip" -d "$KW/rust"
+          rm -f "$KW/rust.zip"
+          echo "Rust: OK ($(ls $KW/rust/bin 2>/dev/null | wc -l) entries in bin/)"
 
-          wait
-          echo "All sources and toolchain components initialized!"
+          echo "--- All sources and toolchain components initialized ---"
 
-          # Post-wait sanity check — catch any silent background job failures early
-          KW="$GITHUB_WORKSPACE/kernel_workspace"
-          echo "=== Post-wait directory check ==="
-          ls -la "$KW/"
-          echo "--- clang19 ---"
-          ls -la "$KW/clang19/" || echo "clang19 empty or missing"
-          echo "--- common (first 5 entries) ---"
-          ls -la "$KW/common/" | head -5 || echo "common empty or missing"
-          echo "--- build-tools/bin (first 5 entries) ---"
-          ls "$KW/build-tools/bin/" | head -5 || echo "build-tools/bin empty or missing"
-          echo "--- rust/bin ---"
-          ls "$KW/rust/bin/" | head -5 || echo "rust/bin empty or missing"
-
-          # Auto-detect clang layout from googlesource tarball.
-          # Use $GITHUB_WORKSPACE absolute path — avoids any cd subshell persistence issues.
+          # Detect clang layout
           echo "=== Detecting clang19 layout ==="
+          ls -la "$KW/clang19/"
           if [ -x "$KW/clang19/bin/clang" ]; then
             CLANG_BIN="$KW/clang19/bin"
             CLANG_LIB="$KW/clang19/lib"
@@ -124,11 +113,15 @@ jobs:
           echo "Resolved clang: $CLANG_BIN/clang"
           $CLANG_BIN/clang --version | head -n1
 
+          # Probe common/ layout before patching setlocalversion
+          echo "=== common/ top-level ==="
+          ls "$KW/common/"
+          echo "=== locating setlocalversion ==="
+          find "$KW/common" -name "setlocalversion" 2>/dev/null || echo "setlocalversion not found"
+
           echo "Stripping -dirty suffix..."
-          for f in kernel_workspace/common/scripts/setlocalversion; do
-            sed -i 's/ -dirty//g' "$f"
-            sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$f"
-          done
+          sed -i 's/ -dirty//g' "$KW/common/scripts/setlocalversion"
+          sed -i '$i res=$(echo "$res" | sed '\''s/-dirty//g'\'')' "$KW/common/scripts/setlocalversion"
 
 
       - name: Add KernelSU
