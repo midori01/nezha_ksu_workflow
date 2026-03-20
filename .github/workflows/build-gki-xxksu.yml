@@ -34,6 +34,9 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Checkout workflow repo
+        uses: actions/checkout@v4
+
       - name: Install dependencies + initialize source repo and llvm-clang19 toolchain
         run: |
           rm -rf kernel_workspace
@@ -204,11 +207,8 @@ jobs:
       - name: Apply manual hooks patches
         run: |
           cd kernel_workspace/common
-          PATCH_BASE="https://raw.githubusercontent.com/yapixel/Popsicle_KSU_Workflow/refs/heads/dev/.github/patches/gki"
-          wget -q "${PATCH_BASE}/manual-hooks-1.8.patch" -O manual-hooks-1.8.patch
-          wget -q "${PATCH_BASE}/scope-min-hooks-v1.9.patch" -O scope-min-hooks-v1.9.patch
-          patch -p1 < manual-hooks-1.8.patch
-          patch -p1 < scope-min-hooks-v1.9.patch
+          patch -p1 < $GITHUB_WORKSPACE/.github/patches/gki/manual-hooks-1.8.patch
+          patch -p1 < $GITHUB_WORKSPACE/.github/patches/gki/scope-min-hooks-v1.9.patch
 
       - name: Build kernel
         run: |
