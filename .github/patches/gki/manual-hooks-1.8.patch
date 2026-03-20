@@ -13,7 +13,7 @@
 +
  /* Security operations */
  
-
+ 
 @@ -238,7 +245,9 @@ int security_bprm_check(struct linux_binprm *bprm)
  {
  	int ret;
