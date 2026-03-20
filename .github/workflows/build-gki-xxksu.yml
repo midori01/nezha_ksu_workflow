@@ -127,7 +127,7 @@ jobs:
             echo "CONFIG_KSU_DEBUG=n"                         >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_KSU_KPROBES_HOOK=n"                  >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y"          >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_KSU_LSM_SECURITY_HOOKS=y"            >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_LSM_SECURITY_HOOKS=n"            >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED=y" >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_KSU_SUSFS=n"                         >> ./common/arch/arm64/configs/gki_defconfig
           else
@@ -200,6 +200,15 @@ jobs:
           fi
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
           echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
+
+      - name: Apply manual hooks patches
+        run: |
+          cd kernel_workspace/common
+          PATCH_BASE="https://raw.githubusercontent.com/yapixel/Popsicle_KSU_Workflow/refs/heads/dev/.github/patches/gki"
+          wget -q "${PATCH_BASE}/manual-hooks-1.8.patch" -O manual-hooks-1.8.patch
+          wget -q "${PATCH_BASE}/scope-min-hooks-v1.9.patch" -O scope-min-hooks-v1.9.patch
+          patch -p1 < manual-hooks-1.8.patch
+          patch -p1 < scope-min-hooks-v1.9.patch
 
       - name: Build kernel
         run: |
