@@ -129,7 +129,7 @@ jobs:
             echo "CONFIG_KSU_ALLOWLIST_WORKAROUND=n"          >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_KSU_DEBUG=n"                         >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_KSU_KPROBES_HOOK=n"                  >> ./common/arch/arm64/configs/gki_defconfig
-            echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=y"          >> ./common/arch/arm64/configs/gki_defconfig
+            echo "CONFIG_KSU_TAMPER_SYSCALL_TABLE=n"          >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_KSU_LSM_SECURITY_HOOKS=n"            >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED=y" >> ./common/arch/arm64/configs/gki_defconfig
             echo "CONFIG_KSU_SUSFS=n"                         >> ./common/arch/arm64/configs/gki_defconfig
