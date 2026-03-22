@@ -35,7 +35,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout workflow repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install dependencies + initialize source repo and llvm-clang19 toolchain
         run: |
