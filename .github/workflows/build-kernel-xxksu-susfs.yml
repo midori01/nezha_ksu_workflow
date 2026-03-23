@@ -96,9 +96,6 @@ jobs:
         with:
           clean: false
 
-      # -----------------------------------------------------------------------
-      # 3. Download Clang toolchain (r536225 / clang 19.0.1)
-      # -----------------------------------------------------------------------
       - name: Download Clang Toolchain
         run: |
           mkdir -p $HOME/clang && cd $HOME/clang
@@ -107,9 +104,6 @@ jobs:
           echo "CLANG_BIN=$HOME/clang/bin" >> $GITHUB_ENV
           echo "$HOME/clang/bin" >> $GITHUB_PATH
 
-      # -----------------------------------------------------------------------
-      # 4. Download GNU Toolchains
-      # -----------------------------------------------------------------------
       - name: Download AArch64 GNU Toolchain
         run: |
           mkdir -p $HOME/toolchains && cd $HOME/toolchains
@@ -124,13 +118,9 @@ jobs:
           tar -xJf tc-arm.tar.xz && rm tc-arm.tar.xz
           echo "ARM32_TOOLCHAIN=$HOME/toolchains/$(ls -d arm-gnu-toolchain-*arm-none-eabi*)/bin/arm-none-eabi-" >> $GITHUB_ENV
 
-      # -----------------------------------------------------------------------
-      # 5. Download OKI kernel source
-      # -----------------------------------------------------------------------
-      - name: Sync kernel sources
+      - name: Sync kernel sources (OKI SM8850)
         run: |
           mkdir -p "${{ env.KERNEL_ROOT }}" && cd "${{ env.KERNEL_ROOT }}"
-          echo "📥 Downloading OKI source..."
           aria2c -s16 -x16 -k1M \
             https://github.com/cctv18/android_kernel_common_oneplus_sm8850/archive/refs/heads/oneplus/sm8850_v_16.0.0_oneplus_15.zip \
             -o common.zip
@@ -142,8 +132,8 @@ jobs:
       - name: Sync SuSFS Source
         run: |
           SUSFS_DIR="${{ github.workspace }}/susfs4ksu"
+          # No pin: uses latest commit on gki-android16-6.12-dev
           git clone --depth=1 --branch=gki-android16-6.12-dev https://gitlab.com/simonpunk/susfs4ksu "$SUSFS_DIR"
-          git -C "$SUSFS_DIR" reset --hard 315af1ddffcfc946cdcc548fd1a51a737e4e9001
           echo "SUSFS_DIR=$SUSFS_DIR" >> $GITHUB_ENV
 
       - name: Setup KernelSU Variant
@@ -153,19 +143,17 @@ jobs:
             "kowsu")
               git clone --depth=1 https://github.com/KOWX712/KernelSU.git KernelSU
               ln -sf ../KernelSU/kernel drivers/kernelsu
-              echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-              sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+              if ! grep -q "kernelsu/" drivers/Makefile; then
+                echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+              fi
+              if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then
+                sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+              fi
               ;;
             "xxksu")
               curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -s -- master
               ;;
           esac
-
-      - name: Get KSU Version Info
-        run: |
-          cd "${{ env.KERNEL_DIR }}/KernelSU"
-          KSU_VERSION=$(grep -oP 'KSU_VERSION=\K[0-9]+' kernel/Makefile 2>/dev/null || echo "30000")
-          echo "KSU_VERSION=$KSU_VERSION" >> $GITHUB_ENV
 
       - name: Setup SuSFS
         if: env.ENABLE_SUSFS == 'true'
@@ -175,7 +163,10 @@ jobs:
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" "${{ env.KERNEL_DIR }}/include/linux/"
           cd "${{ env.KERNEL_DIR }}"
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch" || true
+          
+          # Patch KernelSU directory
           cd KernelSU
+          # Note: If this fails for kowsu, you might need to revert 898e9d4f8ca9b2f46b0c6b36b80a872b5b88d899
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch" || true
 
       - name: Apply Manual Hooks Patches (xxKSU only)
@@ -189,6 +180,7 @@ jobs:
         run: |
           cd "${{ env.KERNEL_DIR }}"
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ github.event.inputs.sub_level }}/" Makefile
+          # Fix libbpf type cast error
           sed -i 's/next_path = strchr(s, '"'"':'"'"');/next_path = (char *)strchr(s, '"'"':'"'"');/' tools/lib/bpf/libbpf.c || true
 
       - name: Write Defconfig Fragment
@@ -234,8 +226,6 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
       - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -246,10 +236,10 @@ jobs:
           if ! ls *.zip >/dev/null 2>&1; then exit 0; fi
           
           cat << 'EOF' > release_notes.md
-          ### OKI Kernel Build Details
-          - **Source:** OnePlus SM8850 (GKI 6.12)
+          ### OKI SM8850 Kernel
+          - **Source:** OnePlus SM8850 (6.12)
           - **SuSFS:** ${{ github.event.inputs.disable_susfs == 'true' && 'Disabled' || 'Enabled' }}
-          - **Device:** OnePlus 13 / SM8850
+          - **Clang:** r536225
           EOF
 
           gh release create "oki-sm8850-${{ github.run_number }}" \
