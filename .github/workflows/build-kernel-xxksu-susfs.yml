@@ -27,31 +27,11 @@ on:
         required: false
         default: true
         type: boolean
-      android_version:
-        description: 'Android version (e.g. android16)'
-        required: true
-        default: 'android16'
-        type: string
-      kernel_version:
-        description: 'Kernel version (e.g. 6.12)'
-        required: true
-        default: '6.12'
-        type: string
       sub_level:
         description: 'Kernel sublevel (e.g. 23 for 6.12.23)'
         required: true
         default: '23'
         type: string
-      os_patch_level:
-        description: 'OS patch level (e.g. 2025-05-exp)'
-        required: true
-        default: '2025-05-exp'
-        type: string
-      debug:
-        description: 'Enable debug output'
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: write
@@ -67,27 +47,16 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
       enable_susfs: ${{ steps.config.outputs.enable_susfs }}
       force_clean: ${{ steps.config.outputs.force_clean }}
-      build_start_time: ${{ steps.timestamp.outputs.start_time }}
       create_release: ${{ steps.config.outputs.create_release }}
     steps:
-      - name: Record Build Start Time
-        id: timestamp
-        run: |
-          echo "WORKFLOW_START_TIME=$(date +%s)" >> $GITHUB_ENV
-          START_TIME=$(date +%s)
-          echo "start_time=$START_TIME" >> $GITHUB_OUTPUT
-          echo "::notice::Workflow started at $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-
       - name: Set Build Matrix
         id: set-matrix
         run: |
           VARIANT="${{ github.event.inputs.ksu_variant }}"
           if [ "$VARIANT" = "all" ]; then
             echo 'matrix={"variant":["kowsu","xxksu"]}' >> $GITHUB_OUTPUT
-            echo "🎯 Building all variants: kowsu, xxksu"
           else
             echo "matrix={\"variant\":[\"$VARIANT\"]}" >> $GITHUB_OUTPUT
-            echo "🎯 Building single variant: $VARIANT"
           fi
 
       - name: Set Build Config
@@ -120,34 +89,54 @@ jobs:
           sudo apt-get clean
           sudo rm -rf /var/lib/apt/lists/*
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends bc bison flex libssl-dev libelf-dev build-essential python3 python3-pip rsync curl git zip unzip libncurses-dev gawk dwarves zstd pahole kmod
-
-      - name: Install repo
-        run: |
-          mkdir -p "$HOME/bin"
-          curl -LSs https://storage.googleapis.com/git-repo-downloads/repo -o "$HOME/bin/repo"
-          chmod +x "$HOME/bin/repo"
-          echo "$HOME/bin" >> $GITHUB_PATH
-          git config --global user.email "ci@github.actions"
-          git config --global user.name  "GitHub Actions"
-
-      - name: Pre-Clean Build Artifacts
-        run: rm -rf AnyKernel3 release-assets changelogs || true
+          sudo apt-get install -y --no-install-recommends bc bison flex libssl-dev libelf-dev build-essential python3 python3-pip rsync curl git zip unzip libncurses-dev gawk dwarves zstd pahole kmod aria2
 
       - name: Checkout Workflow Repo
         uses: actions/checkout@v4
         with:
           clean: false
 
-      - name: Sync Kernel Sources
+      # -----------------------------------------------------------------------
+      # 3. Download Clang toolchain (r536225 / clang 19.0.1)
+      # -----------------------------------------------------------------------
+      - name: Download Clang Toolchain
         run: |
-          ANDROID_VERSION="${{ github.event.inputs.android_version }}"
-          KERNEL_VERSION="${{ github.event.inputs.kernel_version }}"
-          OS_PATCH_LEVEL="${{ github.event.inputs.os_patch_level }}"
-          FORMATTED_BRANCH="${ANDROID_VERSION}-${KERNEL_VERSION}-${OS_PATCH_LEVEL}"
+          mkdir -p $HOME/clang && cd $HOME/clang
+          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz -O clang.tar.gz
+          tar -xzf clang.tar.gz && rm clang.tar.gz
+          echo "CLANG_BIN=$HOME/clang/bin" >> $GITHUB_ENV
+          echo "$HOME/clang/bin" >> $GITHUB_PATH
+
+      # -----------------------------------------------------------------------
+      # 4. Download GNU Toolchains
+      # -----------------------------------------------------------------------
+      - name: Download AArch64 GNU Toolchain
+        run: |
+          mkdir -p $HOME/toolchains && cd $HOME/toolchains
+          wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O tc.tar.xz
+          tar -xJf tc.tar.xz && rm tc.tar.xz
+          echo "ARM64_TOOLCHAIN=$HOME/toolchains/$(ls -d arm-gnu-toolchain-*aarch64*)/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
+
+      - name: Download ARM32 GNU Toolchain
+        run: |
+          mkdir -p $HOME/toolchains && cd $HOME/toolchains
+          wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-arm-none-eabi.tar.xz -O tc-arm.tar.xz
+          tar -xJf tc-arm.tar.xz && rm tc-arm.tar.xz
+          echo "ARM32_TOOLCHAIN=$HOME/toolchains/$(ls -d arm-gnu-toolchain-*arm-none-eabi*)/bin/arm-none-eabi-" >> $GITHUB_ENV
+
+      # -----------------------------------------------------------------------
+      # 5. Download OKI kernel source
+      # -----------------------------------------------------------------------
+      - name: Sync kernel sources
+        run: |
           mkdir -p "${{ env.KERNEL_ROOT }}" && cd "${{ env.KERNEL_ROOT }}"
-          repo init --depth=1 -u https://android.googlesource.com/kernel/manifest -b "common-${FORMATTED_BRANCH}"
-          repo sync -c -j$(nproc --all) --no-tags --fail-fast --force-sync --no-clone-bundle
+          echo "📥 Downloading OKI source..."
+          aria2c -s16 -x16 -k1M \
+            https://github.com/cctv18/android_kernel_common_oneplus_sm8850/archive/refs/heads/oneplus/sm8850_v_16.0.0_oneplus_15.zip \
+            -o common.zip
+          unzip -q common.zip
+          mv "android_kernel_common_oneplus_sm8850-oneplus-sm8850_v_16.0.0_oneplus_15" common
+          rm -f common.zip
           echo "KERNEL_DIR=${{ env.KERNEL_ROOT }}/common" >> $GITHUB_ENV
 
       - name: Sync SuSFS Source
@@ -157,20 +146,9 @@ jobs:
           git -C "$SUSFS_DIR" reset --hard 315af1ddffcfc946cdcc548fd1a51a737e4e9001
           echo "SUSFS_DIR=$SUSFS_DIR" >> $GITHUB_ENV
 
-      - name: Store Commit Info
-        run: |
-          echo "WORKFLOW_COMMIT_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          cd "${{ env.KERNEL_DIR }}"
-          echo "KERNEL_COMMIT_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "KERNEL_COMMIT_MSG=$(git log -1 --format=%s)" >> $GITHUB_ENV
-          cd "${{ env.SUSFS_DIR }}"
-          echo "SUSFS_COMMIT_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "SUSFS_COMMIT_MSG=$(git log -1 --format=%s)" >> $GITHUB_ENV
-
       - name: Setup KernelSU Variant
         run: |
           cd "${{ env.KERNEL_DIR }}"
-          rm -rf KernelSU drivers/kernelsu KernelSU-Next
           case "${{ matrix.variant }}" in
             "kowsu")
               git clone --depth=1 https://github.com/KOWX712/KernelSU.git KernelSU
@@ -186,33 +164,8 @@ jobs:
       - name: Get KSU Version Info
         run: |
           cd "${{ env.KERNEL_DIR }}/KernelSU"
-          if [ "${{ matrix.variant }}" = "xxksu" ]; then
-            KSU_VERSION=$(grep -oP 'KSU_VERSION=\K[0-9]+' kernel/Makefile 2>/dev/null || echo "30000")
-          else
-            KSU_VERSION=$(($(git rev-list --count HEAD) + 30000))
-          fi
+          KSU_VERSION=$(grep -oP 'KSU_VERSION=\K[0-9]+' kernel/Makefile 2>/dev/null || echo "30000")
           echo "KSU_VERSION=$KSU_VERSION" >> $GITHUB_ENV
-          echo "KSU_COMMIT_SHORT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-          echo "KSU_COMMIT_MSG=$(git log -1 --format=%s)" >> $GITHUB_ENV
-
-      - name: Generate Changelog
-        if: needs.setup.outputs.create_release == 'true'
-        run: |
-          mkdir -p changelogs
-          CHANGELOG_FILE="changelogs/CHANGELOG-${{ matrix.variant }}.md"
-          cat << EOF > "$CHANGELOG_FILE"
-          # 📋 Build Changelog
-          **Variant:** ${{ matrix.variant }}
-          **Build Number:** #${{ github.run_number }}
-          **KernelSU Version:** r${{ env.KSU_VERSION }}
-          **SuSFS:** ${{ env.ENABLE_SUSFS == 'true' && 'Enabled' || 'Disabled' }}
-          ---
-          | Component | Commit | Summary |
-          |-----------|--------|---------|
-          | **KernelSU** | \`${{ env.KSU_COMMIT_SHORT }}\` | ${{ env.KSU_COMMIT_MSG }} |
-          | **Kernel** | \`${{ env.KERNEL_COMMIT_SHORT }}\` | ${{ env.KERNEL_COMMIT_MSG }} |
-          EOF
-          echo "CHANGELOG_FILE=$CHANGELOG_FILE" >> $GITHUB_ENV
 
       - name: Setup SuSFS
         if: env.ENABLE_SUSFS == 'true'
@@ -250,21 +203,12 @@ jobs:
           fi
           echo "FRAGMENT=$FRAGMENT" >> $GITHUB_ENV
 
-      - name: Download Toolchains
-        run: |
-          mkdir -p $HOME/clang && cd $HOME/clang
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r536225.tar.gz -O clang.tar.gz && tar -xzf clang.tar.gz
-          echo "CLANG_BIN=$HOME/clang/bin" >> $GITHUB_ENV
-          echo "$HOME/clang/bin" >> $GITHUB_PATH
-          mkdir -p $HOME/toolchains && cd $HOME/toolchains
-          wget -q https://developer.arm.com/-/media/Files/downloads/gnu/14.3.rel1/binrel/arm-gnu-toolchain-14.3.rel1-x86_64-aarch64-none-linux-gnu.tar.xz -O tc.tar.xz && tar -xJf tc.tar.xz
-          echo "ARM64_TOOLCHAIN=$HOME/toolchains/$(ls -d arm-gnu-toolchain-*aarch64*)/bin/aarch64-none-linux-gnu-" >> $GITHUB_ENV
-
       - name: Configure and Build Kernel
         run: |
           cd "${{ env.KERNEL_DIR }}"
           export ARCH=arm64
           export CROSS_COMPILE="${{ env.ARM64_TOOLCHAIN }}"
+          export CROSS_COMPILE_COMPAT="${{ env.ARM32_TOOLCHAIN }}"
           make ARCH=arm64 LLVM=1 O=out gki_defconfig
           cat "${{ env.FRAGMENT }}" >> out/.config
           make ARCH=arm64 LLVM=1 O=out olddefconfig
@@ -275,8 +219,7 @@ jobs:
         run: |
           git clone --depth=1 --branch=gki-2.0 https://github.com/WildKernels/AnyKernel3 AnyKernel3
           cp "${{ env.DIST_DIR }}/Image" AnyKernel3/
-          cd AnyKernel3 && zip -r9 "../AK3-${{ matrix.variant }}.zip" .
-          echo "KERNEL_ZIP=AK3-${{ matrix.variant }}.zip" >> $GITHUB_ENV
+          cd AnyKernel3 && zip -r9 "../AK3-OKI-SM8850-${{ matrix.variant }}.zip" .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
@@ -303,14 +246,14 @@ jobs:
           if ! ls *.zip >/dev/null 2>&1; then exit 0; fi
           
           cat << 'EOF' > release_notes.md
-          ### Build Details
-          - **Kernel:** GKI ${{ github.event.inputs.kernel_version }}
+          ### OKI Kernel Build Details
+          - **Source:** OnePlus SM8850 (GKI 6.12)
           - **SuSFS:** ${{ github.event.inputs.disable_susfs == 'true' && 'Disabled' || 'Enabled' }}
-          - **Device:** Xiaomi 17 Pro Max (popsicle)
+          - **Device:** OnePlus 13 / SM8850
           EOF
 
-          gh release create "popsicle-build-${{ github.run_number }}" \
-            --title "Build #${{ github.run_number }}" \
+          gh release create "oki-sm8850-${{ github.run_number }}" \
+            --title "OKI SM8850 Build #${{ github.run_number }}" \
             --notes-file release_notes.md \
             ./*.zip
         env:
