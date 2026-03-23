@@ -162,9 +162,8 @@ jobs:
           cd "${{ env.KERNEL_DIR }}"
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch" || true
           
-          # Patch KernelSU directory
-          cd KernelSU
-          patch -p1 < "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch
+          
+          
 
       - name: Apply Manual Hooks Patches (xxKSU only)
         if: matrix.variant == 'xxksu'
@@ -172,6 +171,8 @@ jobs:
           cd "${{ env.KERNEL_DIR }}"
           patch -p1 < "${{ github.workspace }}/.github/patches/gki/manual-security-hooks-v1.8.patch" || exit 1
           patch -p1 < "${{ github.workspace }}/.github/patches/gki/scope-min-hooks-v1.9.patch" || exit 1
+          cd KernelSU
+          patch -p1 < "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch
 
       - name: Apply Source Fixes
         run: |
