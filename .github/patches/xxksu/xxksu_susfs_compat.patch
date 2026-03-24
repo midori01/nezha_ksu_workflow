@@ -1,6 +1,6 @@
 --- a/drivers/input/input.c
 +++ b/drivers/input/input.c
-@@ -354,12 +354,6 @@ static void input_event_dispose(struct input_dev *dev, int disposition,
+@@ -354,12 +354,6 @@
  	}
  }
  
@@ -13,7 +13,7 @@
  void input_handle_event(struct input_dev *dev,
  			unsigned int type, unsigned int code, int value)
  {
-@@ -368,10 +362,6 @@ void input_handle_event(struct input_dev *dev,
+@@ -368,10 +362,6 @@
  	lockdep_assert_held(&dev->event_lock);
  
  	disposition = input_get_disposition(dev, type, code, &value);
@@ -26,7 +26,7 @@
  			add_input_randomness(type, code, value);
 --- a/fs/devpts/inode.c
 +++ b/fs/devpts/inode.c
-@@ -580,10 +580,6 @@ struct dentry *devpts_pty_new(struct pts_fs_info *fsi, int index, void *priv)
+@@ -580,10 +580,6 @@
  	return dentry;
  }
  
@@ -37,7 +37,7 @@
  /**
   * devpts_get_priv -- get private data for a slave
   * @dentry: dentry of the slave
-@@ -592,14 +588,6 @@ struct dentry *devpts_pty_new(struct pts_fs_info *fsi, int index, void *priv)
+@@ -592,14 +588,6 @@
   */
  void *devpts_get_priv(struct dentry *dentry)
  {
@@ -54,7 +54,7 @@
  	return dentry->d_fsdata;
 --- a/fs/exec.c
 +++ b/fs/exec.c
-@@ -1913,17 +1913,6 @@ static int bprm_execve(struct linux_binprm *bprm)
+@@ -1913,17 +1913,6 @@
  	return retval;
  }
  
@@ -72,7 +72,7 @@
  static int do_execveat_common(int fd, struct filename *filename,
  			      struct user_arg_ptr argv,
  			      struct user_arg_ptr envp,
-@@ -1935,20 +1924,6 @@ static int do_execveat_common(int fd, struct filename *filename,
+@@ -1935,20 +1924,6 @@
  	if (IS_ERR(filename))
  		return PTR_ERR(filename);
  
@@ -95,7 +95,7 @@
  	 * set*uid() to execve() because too many poorly written programs
 --- a/fs/read_write.c
 +++ b/fs/read_write.c
-@@ -718,18 +718,6 @@ ssize_t ksys_read(unsigned int fd, char __user *buf, size_t count)
+@@ -718,18 +718,6 @@
  	return ret;
  }
  
@@ -116,7 +116,8 @@
  
 --- a/fs/stat.c
 +++ b/fs/stat.c
-@@ -242,8 +242,8 @@ EXPORT_SYMBOL_NS(vfs_getattr, ANDROID_GKI_VFS_EXPORT_ONLY);
+@@ -241,12 +241,12 @@
+ EXPORT_SYMBOL_NS(vfs_getattr, ANDROID_GKI_VFS_EXPORT_ONLY);
  
  #ifdef CONFIG_KSU_SUSFS
 -extern bool ksu_init_rc_hook __read_mostly;
@@ -124,7 +125,9 @@
  extern void ksu_handle_vfs_fstat(int fd, loff_t *kstat_size_ptr);
  #endif // #ifdef CONFIG_KSU_SUSFS
  
-@@ -257,7 +257,7 @@ int vfs_fstat(int fd, struct kstat *stat)
+ int vfs_fstat(int fd, struct kstat *stat)
+ {
+ 	int error;
  	error = vfs_getattr(&fd_file(f)->f_path, stat, STATX_BASIC_STATS, 0);
  #ifdef CONFIG_KSU_SUSFS
 -	if (unlikely(ksu_init_rc_hook)) {
@@ -132,7 +135,7 @@
  		ksu_handle_vfs_fstat(fd, &stat->size);
  	}
  #endif // #ifdef CONFIG_KSU_SUSFS
-@@ -333,14 +333,6 @@ static int vfs_statx_fd(int fd, int flags, struct kstat *stat,
+@@ -333,14 +333,6 @@
  
  #ifdef CONFIG_KSU_SUSFS
 -extern bool ksu_su_compat_enabled __read_mostly;
@@ -150,7 +153,7 @@
  extern int ksu_handle_stat(int *dfd, struct filename **filename, int *flags);
 --- a/kernel/sys.c
 +++ b/kernel/sys.c
-@@ -678,9 +678,6 @@ SYSCALL_DEFINE1(setuid, uid_t, uid)
+@@ -678,9 +678,6 @@
  	return __sys_setuid(uid);
  }
  
@@ -160,7 +163,7 @@
  
  /*
   * This function implements a generic ability to update ruid, euid,
-@@ -695,10 +692,6 @@ long __sys_setresuid(uid_t ruid, uid_t euid, uid_t suid)
+@@ -695,10 +692,6 @@
  	kuid_t kruid, keuid, ksuid;
  	bool ruid_new, euid_new, suid_new;
  
