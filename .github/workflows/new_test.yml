@@ -98,19 +98,17 @@ jobs:
 
       - name: Download Clang 19 Toolchain
         run: |
-          echo "🚀 正在高速下载 Clang 19..."
+          echo "🚀 Downloading Clang 19..."
           mkdir -p $HOME/clang19
           
-          # Using aria2 with optimized split settings for GitHub's backbone
           aria2c -s16 -x16 -k1M --download-result=hide --summary-interval=0 \
             "https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip" \
             -o clang.zip
           
-          echo "📦 正在解压..."
+          echo "📦 Extracting..."
           unzip -q clang.zip -d $HOME/clang19
           rm -f clang.zip
           
-          # Set Paths immediately for subsequent steps
           echo "CLANG_BIN=$HOME/clang19/bin" >> $GITHUB_ENV
           echo "$HOME/clang19/bin" >> $GITHUB_PATH
 
@@ -162,16 +160,9 @@ jobs:
               ;;
           esac
 
-      - name: Setup SuSFS
-        if: env.ENABLE_SUSFS == 'true' || matrix.variant == 'xxksu'
+      - name: Create Python Patch Healer
         run: |
-          cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" "${{ env.KERNEL_DIR }}/fs/"
-          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" "${{ env.KERNEL_DIR }}/include/linux/"
-          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" "${{ env.KERNEL_DIR }}/include/linux/"
-          cd "${{ env.KERNEL_DIR }}"
-          
-          # 1. Create the Python Patch Healer
-          cat << 'EOF' > heal_patch.py
+          cat << 'EOF' > "${{ env.KERNEL_DIR }}/heal_patch.py"
           import sys
           with open(sys.argv[1], 'r', encoding='utf-8') as f: lines = f.read().splitlines()
           with open(sys.argv[1], 'w', encoding='utf-8', newline='\n') as f:
@@ -185,31 +176,66 @@ jobs:
                   else: f.write(line + '\n')
           EOF
 
-          # 2. Apply standard SuSFS patch
-          patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch" 
-          
-          # 3. Heal and apply custom compat patch
-          python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/xxksu_susfs_compat.patch"
-          patch -p1 < "${{ github.workspace }}/.github/patches/xxksu/xxksu_susfs_compat.patch"
+      - name: Copy SuSFS Base Files
+        if: env.ENABLE_SUSFS == 'true' || matrix.variant == 'xxksu'
+        run: |
+          cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" "${{ env.KERNEL_DIR }}/fs/"
+          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" "${{ env.KERNEL_DIR }}/include/linux/"
+          cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" "${{ env.KERNEL_DIR }}/include/linux/"
 
-      - name: Apply Manual Hooks Patches (xxKSU only)
+      - name: Patch 1 - Standard SuSFS
+        if: env.ENABLE_SUSFS == 'true' || matrix.variant == 'xxksu'
+        run: |
+          cd "${{ env.KERNEL_DIR }}"
+          patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch" || {
+            echo "❌ PATCH 1 FAILED! Dumping reject files:"
+            find . -name "*.rej" -exec cat {} +
+            exit 1
+          }
+
+      - name: Patch 2 - xxKSU SuSFS Compat
+        if: env.ENABLE_SUSFS == 'true' || matrix.variant == 'xxksu'
+        run: |
+          cd "${{ env.KERNEL_DIR }}"
+          python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/xxksu_susfs_compat.patch"
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/xxksu_susfs_compat.patch" || {
+            echo "❌ PATCH 2 FAILED! Dumping reject files:"
+            find . -name "*.rej" -exec cat {} +
+            exit 1
+          }
+
+      - name: Patch 3 - Manual Security Hooks
         if: matrix.variant == 'xxksu'
         run: |
           cd "${{ env.KERNEL_DIR }}"
-          
-          # Heal and apply manual security hooks
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch"
-          patch -p1 < "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch" || exit 1
-          
-          # Heal and apply scope min hooks
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch" || {
+            echo "❌ PATCH 3 FAILED! Dumping reject files:"
+            find . -name "*.rej" -exec cat {} +
+            exit 1
+          }
+
+      - name: Patch 4 - Scope Min Hooks
+        if: matrix.variant == 'xxksu'
+        run: |
+          cd "${{ env.KERNEL_DIR }}"
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
-          patch -p1 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch" || exit 1
-          
-          cd KernelSU
-          
-          # Heal and apply KernelSU susfs patch (referencing the healer script in the parent dir)
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch" || {
+            echo "❌ PATCH 4 FAILED! Dumping reject files:"
+            find . -name "*.rej" -exec cat {} +
+            exit 1
+          }
+
+      - name: Patch 5 - KernelSU SuSFS Enable
+        if: matrix.variant == 'xxksu'
+        run: |
+          cd "${{ env.KERNEL_DIR }}/KernelSU"
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch"
-          patch -p1 --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch" || exit 1
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch" || {
+            echo "❌ PATCH 5 FAILED! Dumping reject files:"
+            find . -name "*.rej" -exec cat {} +
+            exit 1
+          }
 
       - name: Apply Source Fixes
         run: |
