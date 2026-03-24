@@ -241,8 +241,13 @@ jobs:
         run: |
           cd "${{ env.KERNEL_DIR }}"
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ github.event.inputs.sub_level }}/" Makefile
+          
           # Fix libbpf type cast error
           sed -i 's/next_path = strchr(s, '"'"':'"'"');/next_path = (char *)strchr(s, '"'"':'"'"');/' tools/lib/bpf/libbpf.c || true
+
+          # Fix KernelSU Linker Errors by disabling LTO and data sections for the KSU module
+          echo "ccflags-y += -fno-lto -fno-data-sections -fno-function-sections" >> drivers/kernelsu/Makefile
+
 
       - name: Write Defconfig Fragment
         run: |
