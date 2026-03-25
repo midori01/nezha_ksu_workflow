@@ -467,7 +467,7 @@ index 1e1df934..4803de85 100644
 +#ifdef CONFIG_KSU_SUSFS
 +#include <linux/susfs_def.h>
 +#include <linux/namei.h>
-+#include <linux/selinux.h>
++#include <selinux/selinux.h>
 +#include <linux/sched/signal.h>
 +#include "selinux/selinux.h"
 +#include "../../security/selinux/include/objsec.h" 
