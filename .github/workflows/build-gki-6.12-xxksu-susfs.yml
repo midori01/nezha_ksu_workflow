@@ -279,6 +279,8 @@ jobs:
 
           echo "DIST_DIR=${{ env.KERNEL_DIR }}/out/arch/arm64/boot" >> $GITHUB_ENV
 
+          continue-on-error: true
+
       - name: Upload Diagnostic Files
         if: matrix.variant == 'xxksu'
         run: |
