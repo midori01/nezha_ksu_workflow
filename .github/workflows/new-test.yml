@@ -1,4 +1,4 @@
-name: Build GKI xxksu/kowsu susfs test
+name: Build GKI xxksu/kowsu susfs 
 
 on:
   workflow_dispatch:
