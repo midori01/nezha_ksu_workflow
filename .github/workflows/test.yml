@@ -274,9 +274,9 @@ jobs:
           cd kernel_workspace/common
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ needs.setup.outputs.sub_level }}/" Makefile
 
-          # Download the anti-rollback bypass libraries
-          wget https://github.com/cctv18/Build-GKI-16/raw/main/lib/libfakestat.so
-          wget https://github.com/cctv18/Build-GKI-16/raw/main/lib/libfaketimeMT.so
+          # Download the anti-rollback bypass libraries from your own repository
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
+          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
           chmod 777 ./*.so
           
           # ==========================================================
@@ -344,7 +344,7 @@ jobs:
           git clone https://github.com/yapixel/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
           
-          # Ensure the old cctv18 watermark is fully scrubbed out
+          # Clean up any leftover cctv18 watermarks just in case
           sed -i '/ui_print "内核构建者: Coolapk@cctv18"/d' ./AnyKernel3/anykernel.sh || true
           
           cp ./common/out/arch/arm64/boot/Image ./AnyKernel3/
