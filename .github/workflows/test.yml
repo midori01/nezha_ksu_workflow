@@ -273,7 +273,38 @@ jobs:
           
           cd kernel_workspace/common
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ needs.setup.outputs.sub_level }}/" Makefile
+
+          # Download the anti-rollback bypass libraries
+          wget https://github.com/cctv18/Build-GKI-16/raw/main/lib/libfakestat.so
+          wget https://github.com/cctv18/Build-GKI-16/raw/main/lib/libfaketimeMT.so
+          chmod 777 ./*.so
           
+          # ==========================================================
+          # UPDATE THIS VARIABLE TO MATCH YOUR STOCK KERNEL TIME
+          # Format: YYYY-MM-DD HH:MM:SS
+          # ==========================================================
+          export FAKESTAT="2023-10-15 12:00:00"
+          export FAKETIME="@2023-10-15 13:00:00"
+          
+          export PRELOAD_LIBS="$(pwd)/libfakestat.so $(pwd)/libfaketimeMT.so"
+          export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
+          
+          # Create CC (Compiler) Wrapper
+          echo '#!/bin/bash' > cc-wrapper
+          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper
+          echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper
+          echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper
+          echo '$REAL_CLANG_PATH "$@"' >> cc-wrapper
+          
+          # Create LD (Linker) Wrapper
+          echo '#!/bin/bash' > ld-wrapper
+          echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper
+          echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper
+          echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper
+          echo 'ld.lld "$@"' >> ld-wrapper
+          
+          chmod +x cc-wrapper ld-wrapper
+
           # Absolute path remapping to fix gendwarfksyms CRC errors
           COMMON_REAL_PATH=$(pwd -P)
           ROOT_REAL_PATH=$(dirname "$COMMON_REAL_PATH")
@@ -295,19 +326,27 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
           
-          # Standard Kernel Timestamp & Environment Spoofing
-          export KBUILD_BUILD_TIMESTAMP="Sun May 25 12:00:00 UTC 2025"
           export KBUILD_BUILD_USER="builder"
           export KBUILD_BUILD_HOST="build-host"
           
           make -j$(nproc --all) O=out gki_defconfig
+          
+          # Inject the wrappers for the final build
+          export CC="$(pwd)/cc-wrapper"
+          export LD="$(pwd)/ld-wrapper"
           make -j$(nproc --all) O=out Image
 
       - name: Package with AnyKernel3
         run: |
           cd kernel_workspace
+          
+          # Use your fork of AnyKernel3
           git clone https://github.com/yapixel/AnyKernel3 --depth=1
           rm -rf ./AnyKernel3/.git
+          
+          # Ensure the old cctv18 watermark is fully scrubbed out
+          sed -i '/ui_print "内核构建者: Coolapk@cctv18"/d' ./AnyKernel3/anykernel.sh || true
+          
           cp ./common/out/arch/arm64/boot/Image ./AnyKernel3/
           
           BUILD_DATE="$(date +'%d%m%y')"
