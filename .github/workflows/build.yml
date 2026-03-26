@@ -1,4 +1,4 @@
-name: Build GKI xxksu/kowsu susfs test
+name: Build GKI xxksu/kowsu susfs 
 
 on:
   workflow_dispatch:
@@ -127,7 +127,7 @@ jobs:
 
       - name: Clone Scripts Repo
         run: |
-          git clone --depth=1 https://github.com/yapixel/sh "${{ github.workspace }}/sh"
+          git clone --depth=1 https://github.com/yalixel/sh "${{ github.workspace }}/sh"
           chmod +x "${{ github.workspace }}/sh/get_ksuver.sh"
 
       - name: Download Clang 19 Toolchain
@@ -331,8 +331,10 @@ jobs:
           CONFIG_KSU_DEBUG=n
           CONFIG_DEBUG_INFO_BTF=n
           CONFIG_DEBUG_INFO_BTF_MODULES=n
-          CONFIG_LTO_NONE=y
-          CONFIG_LTO_CLANG=n
+          CONFIG_LTO_NONE=n
+          CONFIG_LTO_CLANG=y
+          CONFIG_LTO_CLANG_THIN=y
+          CONFIG_LTO_CLANG_FULL=n
           CONFIG_LOCALVERSION_AUTO=n
           EOF
 
@@ -427,6 +429,7 @@ jobs:
           make ARCH=arm64 LLVM=1 O=out olddefconfig
 
           make -j$(nproc) ARCH=arm64 LLVM=1 O=out \
+            LTO=thin \
             KBUILD_BUILD_USER=kleaf \
             KBUILD_BUILD_HOST=build-host \
             KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025" \
