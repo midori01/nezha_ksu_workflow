@@ -235,8 +235,12 @@ jobs:
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> $DEFCONFIG
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
-          # Base KSU (Only inject if not "none")
-          if [ "${{ matrix.variant }}" != "none" ]; then
+          # Base KSU Logic (Aggressively scrub KSU if 'none' is selected)
+          if [ "${{ matrix.variant }}" = "none" ]; then
+            echo "Scrubbing pre-existing KSU configs from source..."
+            sed -i '/CONFIG_KSU/d' $DEFCONFIG
+            echo "CONFIG_KSU=n" >> $DEFCONFIG
+          else
             echo "CONFIG_KSU=y" >> $DEFCONFIG
             echo "CONFIG_KSU_DEBUG=n" >> $DEFCONFIG
           fi
