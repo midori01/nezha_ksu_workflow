@@ -220,6 +220,27 @@ jobs:
           cd kernel_workspace/common/KernelSU
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
 
+      - name: Apply KMI/Vermagic Bypass Patch
+        run: |
+          cd kernel_workspace/common
+          cat << 'EOF' > kmi_bypass.patch
+          --- a/kernel/module/version.c
+          +++ b/kernel/module/version.c
+          @@ -51,8 +51,8 @@
+           	return 1;
+           
+           bad_version:
+          -	pr_warn("%s: disagrees about version of symbol %s\n", info->name, symname);
+          -	return 0;
+          +	pr_warn("%s: disagrees about version of symbol %s. (bypassed)\n", info->name, symname);
+          +	return 1;
+           }
+          EOF
+          patch -p1 --fuzz=3 < kmi_bypass.patch || echo "Patch failed, trying sed fallback..."
+          # Fallback using sed just in case the fuzz fails on Android 16's specific formatting
+          sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
+          sed -i 's/disagrees about version of symbol/disagrees about version of symbol (bypassed)/' kernel/module/version.c
+
       - name: Inject Defconfig Flags
         run: |
           cd kernel_workspace
