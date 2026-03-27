@@ -388,7 +388,7 @@ jobs:
           KCFLAGS+=" -fdebug-prefix-map=$ROOT_REAL_PATH=."
           KCFLAGS+=" -fmacro-prefix-map=$ROOT_REAL_PATH=."
           KCFLAGS+=" -ffile-prefix-map=$ROOT_REAL_PATH=."
-          KCFLAGS+=" -no-canonical-prefixes -O2 -pipe -Wno-error -fno-stack-protector"
+          KCFLAGS+=" -no-canonical-prefixes -O2 -pipe -Wno-error -Wno-unused-command-line-argument -fno-stack-protector"
           export KCFLAGS
 
           export RUSTC="rustc"
