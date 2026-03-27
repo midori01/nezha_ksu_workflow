@@ -580,80 +580,17 @@ jobs:
           path: kernel_workspace/${{ env.ZIP_NAME }}
 
   # =========================================================
-  # JOB 3: PUBLISH RELEASE
+  # JOB 3: PUBLISH RELEASE (Via Reusable Workflow)
   # =========================================================
   release:
-    name: Publish Release
-    runs-on: ubuntu-latest
+    name: Call Release Workflow
     needs: [setup, build-kowsu, build-xxksu]
     if: ${{ !failure() && !cancelled() && needs.setup.outputs.create_release == 'true' }}
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download All Build Artifacts
-        uses: actions/download-artifact@v8
-        with:
-          pattern: kernel-*
-          path: release_zips
-          merge-multiple: true
-
-      - name: Collect Release Metadata
-        id: meta
-        run: |
-          VARIANT_INPUT="${{ inputs.ksu_variant }}"
-          SUSFS_ENABLED="${{ needs.setup.outputs.enable_susfs }}"
-          TIME_FMT="$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')"
-          GKI_VERSION="${{ inputs.gki_version }}"
-          echo "gki_version=${GKI_VERSION}" >> $GITHUB_OUTPUT
-          echo "time_fmt=${TIME_FMT}" >> $GITHUB_OUTPUT
-          echo "variant_input=${VARIANT_INPUT}" >> $GITHUB_OUTPUT
-          echo "susfs_enabled=${SUSFS_ENABLED}" >> $GITHUB_OUTPUT
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: "${{ needs.setup.outputs.release_tag }}"
-          name: "GKI 6.12 — ${{ needs.setup.outputs.release_tag }}"
-          generate_release_notes: true
-          body: |
-            ## Kernel Build Details
-            | Field          | Value |
-            | :------------- | :---- |
-            | **Kernel** | `6.12` (${{ steps.meta.outputs.gki_version }}) |
-            | **KSU Variant**| `${{ steps.meta.outputs.variant_input }}` |
-            | **SuSFS (KowSU)** | `${{ steps.meta.outputs.susfs_enabled == 'true' && 'Enabled' || 'Disabled' }}` |
-            | **SuSFS (xxKSU)** | `Disabled` |
-            | **Compiler** | Google Prebuilt Clang + Rust |
-            | **Build Time** | ${{ steps.meta.outputs.time_fmt }} (CST) |
-
-            ## Contributors
-            <a href="https://github.com/tiann"><img src="https://github.com/tiann.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="tiann"></a>
-            <a href="https://github.com/backslashxx"><img src="https://github.com/backslashxx.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="backslashxx"></a>
-            <a href="https://github.com/KOWX712"><img src="https://github.com/KOWX712.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="KOWX712"></a>
-            <a href="https://github.com/simonpunk"><img src="https://github.com/simonpunk.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="simonpunk"></a>
-            <a href="https://github.com/osm0sis"><img src="https://github.com/osm0sis.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="osm0sis"></a>
-
-            ## Installation
-            **Method A — Recovery (recommended)**
-            1. Boot into TWRP / OrangeFox.
-            2. Flash the AnyKernel3 zip below.
-            3. Reboot.
-
-            **Method B — In-Android**
-            Use [HorizonKernelFlasher](https://github.com/libxzr/HorizonKernelFlasher) or [KernelFlasher](https://github.com/capntrips/KernelFlasher).
-
-            ## KernelSU Manager
-            | Variant | Manager |
-            | :------ | :------ |
-            | **xxKSU** | [backslashxx/KernelSU](https://github.com/backslashxx/KernelSU/releases) |
-            | **KowSU** | [KOWX712/KernelSU](https://github.com/KOWX712/KernelSU/releases) |
-
-            > ⚠️ A meta-module is required for mounting.
-            > Recommended: [mountify](https://github.com/backslashxx/mountify) (xxKSU)
-
-            > Built automatically via GitHub Actions — [run #${{ github.run_number }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-          draft: false
-          prerelease: false
-          files: release_zips/*.zip
+    uses: ./.github/workflows/release.yml
+    secrets: inherit
+    with:
+      release_tag: ${{ needs.setup.outputs.release_tag }}
+      gki_version: ${{ inputs.gki_version }}
+      variant_input: ${{ inputs.ksu_variant }}
+      susfs_enabled: ${{ needs.setup.outputs.enable_susfs }}
 
