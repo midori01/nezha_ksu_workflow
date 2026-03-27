@@ -615,6 +615,7 @@ jobs:
         with:
           tag_name: "${{ needs.setup.outputs.release_tag }}"
           name: "GKI 6.12 — ${{ needs.setup.outputs.release_tag }}"
+          generate_release_notes: true
           body: |
             ## Kernel Build Details
             | Field          | Value |
@@ -625,6 +626,13 @@ jobs:
             | **SuSFS (xxKSU)** | `Disabled` |
             | **Compiler** | Google Prebuilt Clang + Rust |
             | **Build Time** | ${{ steps.meta.outputs.time_fmt }} (CST) |
+
+            ## Contributors
+            <a href="https://github.com/tiann"><img src="https://github.com/tiann.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="tiann"></a>
+            <a href="https://github.com/backslashxx"><img src="https://github.com/backslashxx.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="backslashxx"></a>
+            <a href="https://github.com/KOWX712"><img src="https://github.com/KOWX712.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="KOWX712"></a>
+            <a href="https://github.com/simonpunk"><img src="https://github.com/simonpunk.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="simonpunk"></a>
+            <a href="https://github.com/osm0sis"><img src="https://github.com/osm0sis.png" width="45" height="45" style="border-radius: 50%; margin-right: 10px;" alt="osm0sis"></a>
 
             ## Installation
             **Method A — Recovery (recommended)**
@@ -648,3 +656,4 @@ jobs:
           draft: false
           prerelease: false
           files: release_zips/*.zip
+
