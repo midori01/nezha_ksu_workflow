@@ -86,11 +86,15 @@ jobs:
       enable_susfs: ${{ matrix.variant == 'kowsu' && !inputs.disable_susfs }}
       create_release: ${{ inputs.create_release }}
 
-  # 3. RELEASE: Runs once after ALL builds are finished
+   # 3. RELEASE: Runs once after ALL builds are finished
   publish:
     needs: [setup, build-a16-6-12]
-    if: inputs.create_release == true
+    # Check if any build succeeded and user wants a release
+    if: ${{ success() && inputs.create_release == true }}
     uses: ./.github/workflows/release.yml
     secrets: inherit
     with:
-      release_tag: "build-${{ github.run_number }}" # Or your date logic
+      release_tag: ${{ needs.setup.outputs.release_tag }}
+      # Pass these so the release notes know what the user requested
+      gki_version: ${{ inputs.gki_version }}
+      variant_input: ${{ inputs.ksu_variant }}
