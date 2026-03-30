@@ -128,7 +128,7 @@ jobs:
           sed -i '/CONFIG_LOCALVERSION/d' $DEFCONFIG
           # Keep this short: base is "6.12.23" (7 chars), LOCALVERSION must leave room
           # for nothing — setlocalversion is now a no-op, so full string = "6.12.23" + this
-          echo 'CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847"' >> $DEFCONFIG
+          echo 'CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"' >> $DEFCONFIG
           echo 'CONFIG_LOCALVERSION_AUTO=n' >> $DEFCONFIG
 
           cat >> $DEFCONFIG <<-'EOF'
