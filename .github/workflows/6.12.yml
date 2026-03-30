@@ -1,4 +1,4 @@
-name: Build GKI SUSFS with KowSU/xxksu (Popsicle Master v2)
+name: Build GKI SUSFS with KowSU/xxksu
 
 on:
   workflow_dispatch:
