@@ -1,4 +1,4 @@
-name: Build Official Google GKI 6.12.23 (Popsicle Master v6)
+name: Build Official Google GKI 6.12.23 (Popsicle Master v7)
 
 on:
   workflow_dispatch:
@@ -63,6 +63,7 @@ jobs:
       - name: Free Space & Install Repo Tool
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af 2>/dev/null || true
           sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends \
             binutils python-is-python3 libssl-dev libelf-dev libdw-dev curl bison flex make git perl gcc bc zip unzip aria2
           mkdir -p ~/bin
@@ -81,6 +82,7 @@ jobs:
           DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
           if grep -q deprecated <<< "$REMOTE_BRANCH"; then
             sed -i "s/\"${FORMATTED_BRANCH}\"/\"deprecated\/${FORMATTED_BRANCH}\"/g" $DEFAULT_MANIFEST_PATH
+            echo "⚠ Note: Branch ${FORMATTED_BRANCH} is considered deprecated. Manifest updated."
           fi
           
           repo sync -c -j$(nproc --all) --force-sync --no-tags --no-clone-bundle
@@ -98,7 +100,7 @@ jobs:
       - name: Patch Kernel (Version String Fix)
         run: |
           cd kernel_workspace/common
-          # Fix the "Exceeds 64 characters" error by silencing automatic suffixes
+          # Prevent "Exceeds 64 characters" error by disabling git suffixes
           touch .scmversion
           sed -i 's/^res=.*/res=""/' scripts/setlocalversion
           sed -i 's/echo "+"/# echo "+"/' scripts/setlocalversion
@@ -115,7 +117,7 @@ jobs:
             sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
           fi
 
-      - name: Inject Defconfig Flags (Spoofed + IPSet + LogBuf)
+      - name: Inject Defconfig Flags (Network + KSU Isolation)
         run: |
           cd kernel_workspace/common
           DEFCONFIG="arch/arm64/configs/gki_defconfig"
@@ -124,26 +126,64 @@ jobs:
           echo 'CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"' >> $DEFCONFIG
 
           cat >> $DEFCONFIG <<-'EOF'
+          # Core Configuration
           CONFIG_LOG_BUF_SHIFT=21
+          CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
+          CONFIG_RUST=y
+          CONFIG_ANDROID_BINDER_IPC_RUST=m
+          CONFIG_TMPFS_XATTR=y
+          CONFIG_TMPFS_POSIX_ACL=y
+
+          # Networking Configuration (TTL/HL Bypass)
           CONFIG_IP_NF_TARGET_TTL=y
           CONFIG_IP6_NF_TARGET_HL=y
+          CONFIG_IP6_NF_MATCH_HL=y
+
+          # BBR TCP Congestion Control
           CONFIG_TCP_CONG_ADVANCED=y
           CONFIG_TCP_CONG_BBR=y
           CONFIG_NET_SCH_FQ=y
+          # CONFIG_TCP_CONG_BIC is not set
+          # CONFIG_TCP_CONG_WESTWOOD is not set
+          # CONFIG_TCP_CONG_HTCP is not set
+
+          # Full IPSet Suite
           CONFIG_IP_SET=y
           CONFIG_NETFILTER_XT_SET=y
           CONFIG_IP_SET_MAX=65534
+          CONFIG_IP_SET_BITMAP_IP=y
+          CONFIG_IP_SET_BITMAP_IPMAC=y
+          CONFIG_IP_SET_BITMAP_PORT=y
           CONFIG_IP_SET_HASH_IP=y
+          CONFIG_IP_SET_HASH_IPMARK=y
+          CONFIG_IP_SET_HASH_IPPORT=y
+          CONFIG_IP_SET_HASH_IPPORTIP=y
+          CONFIG_IP_SET_HASH_IPPORTNET=y
+          CONFIG_IP_SET_HASH_IPMAC=y
+          CONFIG_IP_SET_HASH_MAC=y
+          CONFIG_IP_SET_HASH_NETPORTNET=y
           CONFIG_IP_SET_HASH_NET=y
+          CONFIG_IP_SET_HASH_NETNET=y
+          CONFIG_IP_SET_HASH_NETPORT=y
+          CONFIG_IP_SET_HASH_NETIFACE=y
+          CONFIG_IP_SET_LIST_SET=y
+
+          # TProxy & REDIRECT Targets
           CONFIG_NETFILTER_XT_TARGET_TPROXY=y
           CONFIG_NETFILTER_XT_TARGET_REDIRECT=y
+          CONFIG_NETFILTER_XT_MATCH_SOCKET=y
+          CONFIG_NETFILTER_XT_MATCH_MARK=y
           EOF
 
           if [ "${{ matrix.variant }}" = "xxksu" ]; then
-            echo -e "CONFIG_KSU=y\nCONFIG_KSU_SUSFS=n\nCONFIG_KSU_EXTRAS=y\nCONFIG_KSU_LSM_SECURITY_HOOKS=n" >> $DEFCONFIG
+            echo -e "CONFIG_KSU=y\nCONFIG_KSU_SUSFS=n\nCONFIG_KSU_EXTRAS=y\nCONFIG_KSU_LSM_SECURITY_HOOKS=n\nCONFIG_KSU_TAMPER_SYSCALL_TABLE=n" >> $DEFCONFIG
           elif [ "${{ matrix.variant }}" = "kowsu" ]; then
             echo "CONFIG_KSU=y" >> $DEFCONFIG
-            [ "${{ needs.setup.outputs.enable_susfs }}" = "true" ] && echo -e "CONFIG_KSU_SUSFS=y\nCONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $DEFCONFIG
+            if [[ "${{ env.ENABLE_SUSFS }}" == "true" ]]; then
+              echo -e "CONFIG_KSU_SUSFS=y\nCONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> $DEFCONFIG
+            else
+              echo "CONFIG_KSU_SUSFS=n" >> $DEFCONFIG
+            fi
           fi
           sed -i 's/check_defconfig//' build.config.gki || true
 
@@ -156,7 +196,11 @@ jobs:
 
           cat > cc-wrapper <<-'EOF'
           #!/bin/bash
-          [[ "$*" == *"--version"* ]] && echo "Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460), LLD 19.0.1" && exit 0
+          if [[ "$*" == *"--version"* ]]; then
+              echo "Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460), LLD 19.0.1"
+              exit 0
+          fi
+          export LD_PRELOAD="$(pwd)/libfakestat.so $(pwd)/libfaketimeMT.so"
           export FAKESTAT="2025-09-12 04:57:41"
           export FAKETIME="@2025-09-12 04:57:41"
           exec "$REAL_CLANG_PATH" "$@"
@@ -169,22 +213,42 @@ jobs:
           make -j$(nproc --all) O=out gki_defconfig
           make -j$(nproc --all) O=out Image
 
-      - name: Package & Upload
+      - name: Package & Boot-Ready Check
         run: |
           cd kernel_workspace
           IMAGE="./common/out/arch/arm64/boot/Image"
           [ -f "$IMAGE" ] || exit 1
           git clone https://github.com/yapixel/AnyKernel3 --depth=1
           cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
-          ZIP_NAME="${{ matrix.variant }}_GKI-Official-6.12.23.zip"
+          
+          LABEL=""
+          if [ "${{ matrix.variant }}" = "kowsu" ] && [ "${{ env.ENABLE_SUSFS }}" = "true" ]; then
+             LABEL="-susfs"
+          elif [ "${{ matrix.variant }}" = "xxksu" ]; then
+             LABEL="-nosusfs"
+          fi
+          
+          ZIP_NAME="${{ matrix.variant }}_GKI-Official-6.12.23${LABEL}.zip"
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Generate Summary
+        run: |
+          echo "### 🛠️ Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Kernel | Variant | SuSFS |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- | :--- |" >> $GITHUB_STEP_SUMMARY
+          S="NO ❌"; [ "${{ matrix.variant }}" = "kowsu" ] && [ "${{ env.ENABLE_SUSFS }}" = "true" ] && S="YES ✅"
+          echo "| 6.12.23 Official | ${{ matrix.variant }} | $S |" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: kernel-${{ matrix.variant }}
           path: kernel_workspace/${{ env.ZIP_NAME }}
+
+      - name: Clean
+        if: always()
+        run: rm -rf kernel_workspace/common/out kernel_workspace/clang19 || true
 
   release:
     needs: [setup, build]
@@ -198,4 +262,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: "${{ needs.setup.outputs.release_tag }}"
+          body: "Official Google GKI source build with full IPSet, BBR, and KSU isolation."
           files: release_zips/*.zip
