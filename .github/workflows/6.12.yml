@@ -239,12 +239,40 @@ jobs:
           # Bypass GKI Integrity Checks
           sed -i 's/check_defconfig//' ./common/build.config.gki || true
 
-      - name: Verify Kernel Configuration (Debug Menu)
+            - name: Verify Kernel Configuration (Debug Menu)
         run: |
+          # Use the actual generated .config if available, otherwise fallback to defconfig
           DOT_CONFIG="kernel_workspace/common/out/.config"
           [ -f "$DOT_CONFIG" ] || DOT_CONFIG="kernel_workspace/common/arch/arm64/configs/gki_defconfig"
+          
           echo "### 🔍 Final Config Verification ###"
-          grep -E "CONFIG_KSU|CONFIG_IP_SET|CONFIG_TCP_CONG_BBR|CONFIG_KPROBES" "$DOT_CONFIG" || true
+          
+          # List of critical flags required for AndroidTProxyShell
+          CRITICAL_FLAGS=(
+            "CONFIG_KSU"
+            "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE"
+            "CONFIG_NETFILTER_XT_TARGET_TPROXY"
+            "CONFIG_NETFILTER_XT_TARGET_REDIRECT"
+            "CONFIG_IP_SET"
+            "CONFIG_TCP_CONG_BBR"
+          )
+
+          MISSING_FLAGS=0
+          for FLAG in "${CRITICAL_FLAGS[@]}"; do
+            if grep -q "$FLAG=y" "$DOT_CONFIG"; then
+              echo "✅ $FLAG is ENABLED"
+            else
+              echo "❌ $FLAG is MISSING!"
+              MISSING_FLAGS=$((MISSING_FLAGS + 1))
+            fi
+          done
+
+          if [ "$MISSING_FLAGS" -gt 0 ]; then
+            echo "Error: $MISSING_FLAGS critical networking flags are missing. Check injection logic!"
+            # Optional: Uncomment the next line to force build failure if flags are missing
+            # exit 1
+          fi
+
 
       - name: Compile Kernel (Identity Spoofing)
         run: |
