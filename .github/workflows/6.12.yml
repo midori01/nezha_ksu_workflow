@@ -276,19 +276,47 @@ jobs:
           echo "### 🔍 Final Config Verification ###"
           grep -E "CONFIG_KSU|CONFIG_KSU_SUSFS|CONFIG_IP_SET|CONFIG_TCP_CONG_BBR" "$DOT_CONFIG" || true
 
-      - name: Compile Kernel
+      - name: Compile Kernel (Identity Spoofing)
         run: |
           WORKDIR="$(pwd)"
+          # Set toolchain paths
           export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
-          cd kernel_workspace/common
-          sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ needs.setup.outputs.sub_level }}/" Makefile
-          
           export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
-          echo -e '#!/bin/bash\n$REAL_CLANG_PATH "$@"' > cc-wrapper && chmod +x cc-wrapper
           
-          export ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu-
-          export CC="$(pwd)/cc-wrapper" LD=ld.lld
+          cd kernel_workspace/common
+
+          # 1. Create Spoofed CC Wrapper
+          # This intercepts 'clang --version' to return the Google toolchain string
+          cat > cc-wrapper <<-'EOF'
+          #!/bin/bash
+          if [[ "$*" == *"--version"* ]]; then
+              echo "Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460), LLD 19.0.1"
+              exit 0
+          fi
+          # Maintain faketime/fakestat for consistency
+          export LD_PRELOAD="$(pwd)/libfakestat.so $(pwd)/libfaketimeMT.so"
+          export FAKESTAT="2025-09-12 04:57:41"
+          export FAKETIME="@2025-09-12 04:57:41"
+          exec "$REAL_CLANG_PATH" "$@"
+          EOF
+          chmod +x cc-wrapper
+
+          # 2. Set KBUILD Environment Variables
           
+          export KBUILD_BUILD_USER="kleaf"
+          export KBUILD_BUILD_HOST="build-host"
+          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
+          export KBUILD_BUILD_VERSION="1" 
+
+          # 3. Standard GKI Build Variables
+          export ARCH=arm64
+          export LLVM=1
+          export LLVM_IAS=1
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC="$(pwd)/cc-wrapper"
+          export LD=ld.lld
+
+          # 4. Build Execution
           make -j$(nproc --all) O=out gki_defconfig
           make -j$(nproc --all) O=out Image
 
