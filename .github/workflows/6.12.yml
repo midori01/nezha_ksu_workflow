@@ -211,13 +211,11 @@ jobs:
           CONFIG_NETFILTER_XT_MATCH_IPRANGE=y
           CONFIG_NETFILTER_XT_MATCH_OWNER=y
           CONFIG_NETFILTER_XT_MATCH_MAC=y
-          CONFIG_NETFILTER_XT_TARGET_MARK=y
-          CONFIG_NETFILTER_XT_TARGET_CONNMARK=y
-          CONFIG_NETFILTER_XT_MATCH_CONNMARK=y
-
-
-          # CRITICAL for tproxy.sh stateful inspection
+          # CRITICAL for tproxy.sh stateful inspection (Linux 6.x+ compatible)
           CONFIG_NETFILTER_XT_MATCH_CONNTRACK=y
+          CONFIG_NETFILTER_XT_MARK=y
+          CONFIG_NETFILTER_XT_CONNMARK=y
+
 
           # Required for IPv6 DNS Hijack and REDIRECT modes
           CONFIG_IP6_NF_NAT=y
@@ -254,14 +252,17 @@ jobs:
           # List of critical flags required for the transparent proxy script
           CRITICAL_FLAGS=(
             "CONFIG_KSU"
-            "CONFIG_NETFILTER_XT_TARGET_MARK=y"
-            "CONFIG_NETFILTER_XT_TARGET_CONNMARK=y"
-            "CONFIG_NETFILTER_XT_MATCH_CONNMARK=y"
+"CONFIG_NETFILTER_XT_TARGET_MARK=y"
+"CONFIG_NETFILTER_XT_TARGET_CONNMARK=y"
+"CONFIG_NETFILTER_XT_MATCH_CONNMARK=y"
 
             "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE"
             "CONFIG_NETFILTER_XT_TARGET_TPROXY"
             "CONFIG_NETFILTER_XT_TARGET_REDIRECT"
-            "CONFIG_NETFILTER_XT_MATCH_CONNTRACK" # Crucial for stateful inspection
+            "CONFIG_NETFILTER_XT_MATCH_CONNTRACK"
+            "CONFIG_NETFILTER_XT_MARK"
+            "CONFIG_NETFILTER_XT_CONNMARK"
+       # Crucial for stateful inspection
             "CONFIG_IP6_NF_NAT"                   # Required for IPv6 REDIRECT/DNS
             "CONFIG_IP6_NF_TARGET_REDIRECT"       # Required for IPv6 REDIRECT/DNS
             "CONFIG_IP_SET"
