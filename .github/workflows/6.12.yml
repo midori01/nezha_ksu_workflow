@@ -109,17 +109,27 @@ jobs:
         run: |
          cd kernel_workspace/common
          case "${{ matrix.variant }}" in
-          "kowsu") git clone --depth=1 --branch master https://github.com/KOWX712/KernelSU.git KernelSU ;;
-          "xxksu") git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
+       
+         
+         
+         "kowsu") git clone --depth=1 --branch master https://github.com/KOWX712/KernelSU.git KernelSU ;;
+         "xxksu") git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
          esac
          ln -sf ../KernelSU/kernel drivers/kernelsu
-         # Verify symlink and append
-         echo "Makefile path: $(readlink -f drivers/kernelsu/Makefile)"
-         echo 'ccflags-y += -I$(srctree)/drivers/kernelsu/include' >> KernelSU/kernel/Makefile
-         echo 'subdir-ccflags-y += -I$(srctree)/drivers/kernelsu/include' >> KernelSU/kernel/Makefile
-         echo "--- Makefile tail ---"
-         tail -3 KernelSU/kernel/Makefile
-         [ ! -z "$(grep 'obj-$(CONFIG_KSU)' drivers/Makefile)" ] || echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
+         # Symlink include/ contents into every subdir so peer-relative includes work
+         for subdir in KernelSU/kernel/*/; do
+         [ -d "$subdir" ] || continue
+         subname=$(basename "$subdir")
+         [ "$subname" = "include" ] && continue
+         for hdr in KernelSU/kernel/include/*.h; do
+         ln -sf "../../include/$(basename $hdr)" "KernelSU/kernel/${subname}/$(basename $hdr)"
+         done
+         # Also symlink uapi/ subdir
+         [ -d KernelSU/kernel/include/uapi ] && \
+         ln -sfn "../../include/uapi" "KernelSU/kernel/${subname}/uapi"
+         done
+         [ -z "$(grep 'obj-$(CONFIG_KSU)' drivers/Makefile)" ] && \
+         echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
          sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
 
       - name: Resolve KSU Version
