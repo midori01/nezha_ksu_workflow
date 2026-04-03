@@ -26,7 +26,7 @@ jobs:
       ANDROID_VERSION: 'android16'
       KERNEL_VERSION: '6.12'
       KSU_VARIANT: 'MidoriSU'
-      USER_REPO: 'midori01'
+      USER_REPO: 'azkx'
       KSU_BRANCH: 'main'
 
     steps:
