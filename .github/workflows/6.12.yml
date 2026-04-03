@@ -261,7 +261,7 @@ jobs:
           CONFIG_KSU_LSM_SECURITY_HOOKS=n
           CONFIG_KSU_TAMPER_SYSCALL_TABLE=n
           EOF
-          elif [ "${{ matrix.variant }}" = "kowsu" ]; then
+          else
             cat >> $DEFCONFIG <<-'EOF'
           CONFIG_KSU=y
           CONFIG_KPROBES=y
