@@ -178,17 +178,17 @@ jobs:
 
           make -j$(nproc --all) O=out gki_defconfig
           make -j$(nproc --all) O=out Image
-
+       
       - name: Package AnyKernel3
         run: |
           cd kernel_workspace
           IMAGE="./common/out/arch/arm64/boot/Image"
           git clone https://github.com/yapixel/AnyKernel3 --depth=1
           cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
-          
           ZIP_NAME="MidoriSU_nezha_6.12.${{ github.event.inputs.sub_level }}-${{ env.KSU_VER }}.zip"
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+          echo "REL_TAG=v6.12.${{ github.event.inputs.sub_level }}-$(date +'%Y%m%d')" >> $GITHUB_ENV
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -200,6 +200,6 @@ jobs:
         if: github.event.inputs.create_release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "v6.12.${{ github.event.inputs.sub_level }}-$(date +'%Y%m%d')"
+          tag_name: "${{ env.REL_TAG }}"
           name: "MidoriSU GKI 6.12.${{ github.event.inputs.sub_level }}"
           files: kernel_workspace/*.zip
