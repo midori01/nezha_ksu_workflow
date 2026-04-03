@@ -139,15 +139,20 @@ jobs:
         run: |
           if [[ "${{ matrix.variant }}" == "MidoriSU" ]]; then
             USER_REPO="midori01"
+            KSU_BRANCH="main"
           elif [[ "${{ matrix.variant }}" == "kowsu" ]]; then
             USER_REPO="KOWX712"
+            KSU_BRANCH="master"
           else
             USER_REPO="backslashxx"
+            KSU_BRANCH="master"
           fi
-          
-          KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "$USER_REPO" "KernelSU" "master" || echo "unknown")
+          KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "$USER_REPO" "KernelSU" "$KSU_BRANCH" || echo "unknown")
+          if [ "$KSU_VER" = "unknown" ]; then
+            exit 1
+          fi
           echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
-
+          
       - name: Create Patch Healer
         run: |
           cat > "${{ github.workspace }}/kernel_workspace/common/heal_patch.py" << 'PYEOF'
