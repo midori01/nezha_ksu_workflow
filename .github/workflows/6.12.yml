@@ -112,7 +112,7 @@ jobs:
          case "${{ matrix.variant }}" in
          "kowsu") git clone --depth=1 --branch master https://github.com/KOWX712/KernelSU.git KernelSU ;;
          "xxksu") git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
-         "MidoriSU") git clone --depth=1 --branch master https://github.com/midori01/KernelSU.git KernelSU ;;
+         "MidoriSU") git clone --depth=1 --branch main https://github.com/midori01/KernelSU.git KernelSU ;;
          esac
     
          ln -sf ../KernelSU/kernel drivers/kernelsu
