@@ -392,11 +392,4 @@ jobs:
         with:
           tag_name: "${{ needs.setup.outputs.release_tag }}"
           name: "GKI 6.12.${{ needs.setup.outputs.sub_level }} — ${{ needs.setup.outputs.release_tag }}"
-          body: |
-            ## 🚀 Popsicle GKI Release Details
-            - **Kernel Version:** `6.12.${{ needs.setup.outputs.sub_level }}`
-            - **Features:** IPSet Suite, BBR Networking, KMI Bypass.
-            - **Variants:**
-              - **KowSU:** Standard Kprobes deployment.
-              - **xxKSU:** Built with native hooks.
           files: release_zips/*.zip
