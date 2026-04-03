@@ -113,14 +113,25 @@ jobs:
          "xxksu") git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
          esac
     
-         echo "=== KSU kernel tree ==="
-         find KernelSU/kernel -maxdepth 2 -name "*.h" | sort
-    
-         echo "=== KSU subdirs ==="
-         ls KernelSU/kernel/
-    
-         echo "=== feature/ contents ==="
-         ls KernelSU/kernel/feature/
+         ln -sf ../KernelSU/kernel drivers/kernelsu
+
+         # Fix 1: klog.h — symlink into every subdir that needs it
+         for subdir in core feature hook infra manager policy runtime selinux sulog supercall; do
+         dir="KernelSU/kernel/${subdir}"
+         [ -d "$dir" ] || continue
+         ln -sf ../include/klog.h  "$dir/klog.h"
+         ln -sf ../include/arch.h  "$dir/arch.h"
+         ln -sf ../include/ksu.h   "$dir/ksu.h"
+         done
+
+         # Fix 2: uapi/app_profile.h — create uapi/ dir pointing to policy/app_profile.h
+         mkdir -p KernelSU/kernel/include/uapi
+         ln -sf ../../policy/app_profile.h KernelSU/kernel/include/uapi/app_profile.h
+         for subdir in core feature hook infra manager policy runtime selinux sulog supercall; do
+         dir="KernelSU/kernel/${subdir}"
+         [ -d "$dir" ] || continue
+         ln -sfn ../include/uapi "$dir/uapi"
+         done
 
       - name: Resolve KSU Version
         run: |
