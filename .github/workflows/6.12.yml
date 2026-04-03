@@ -109,28 +109,18 @@ jobs:
         run: |
          cd kernel_workspace/common
          case "${{ matrix.variant }}" in
-       
-         
-         
          "kowsu") git clone --depth=1 --branch master https://github.com/KOWX712/KernelSU.git KernelSU ;;
          "xxksu") git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
          esac
-         ln -sf ../KernelSU/kernel drivers/kernelsu
-         # Symlink include/ contents into every subdir so peer-relative includes work
-         for subdir in KernelSU/kernel/*/; do
-         [ -d "$subdir" ] || continue
-         subname=$(basename "$subdir")
-         [ "$subname" = "include" ] && continue
-         for hdr in KernelSU/kernel/include/*.h; do
-         ln -sf "../../include/$(basename $hdr)" "KernelSU/kernel/${subname}/$(basename $hdr)"
-         done
-         # Also symlink uapi/ subdir
-         [ -d KernelSU/kernel/include/uapi ] && \
-         ln -sfn "../../include/uapi" "KernelSU/kernel/${subname}/uapi"
-         done
-         [ -z "$(grep 'obj-$(CONFIG_KSU)' drivers/Makefile)" ] && \
-         echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile
-         sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+    
+         echo "=== KSU kernel tree ==="
+         find KernelSU/kernel -maxdepth 2 -name "*.h" | sort
+    
+         echo "=== KSU subdirs ==="
+         ls KernelSU/kernel/
+    
+         echo "=== feature/ contents ==="
+         ls KernelSU/kernel/feature/
 
       - name: Resolve KSU Version
         run: |
