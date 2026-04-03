@@ -1,4 +1,4 @@
-name: Build GKI with xxksu
+name: Build GKI with KernelSU
 
 on:
   workflow_dispatch:
@@ -6,12 +6,13 @@ on:
       ksu_variant:
         description: 'KernelSU variant to build'
         required: true
-        default: 'all'
+        default: 'MidoriSU'
         type: choice
         options:
           - all
           - kowsu
           - xxksu
+          - MidoriSU
       sub_level:
         description: 'Kernel sublevel (e.g. 23 for 6.12.23)'
         required: true
@@ -41,7 +42,7 @@ jobs:
         run: |
           VARIANT="${{ github.event.inputs.ksu_variant }}"
           if [ "$VARIANT" = "all" ]; then
-            echo 'matrix={"variant":["kowsu","xxksu"]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"variant":["kowsu","xxksu","MidoriSU"]}' >> $GITHUB_OUTPUT
           else
             echo "matrix={\"variant\":[\"$VARIANT\"]}" >> $GITHUB_OUTPUT
           fi
@@ -111,6 +112,7 @@ jobs:
          case "${{ matrix.variant }}" in
          "kowsu") git clone --depth=1 --branch master https://github.com/KOWX712/KernelSU.git KernelSU ;;
          "xxksu") git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
+         "MidoriSU") git clone --depth=1 --branch master https://github.com/midori01/KernelSU.git KernelSU ;;
          esac
     
          ln -sf ../KernelSU/kernel drivers/kernelsu
@@ -135,7 +137,14 @@ jobs:
 
       - name: Resolve KSU Version
         run: |
-          USER_REPO="${{ matrix.variant == 'kowsu' && 'KOWX712' || 'backslashxx' }}"
+          if [[ "${{ matrix.variant }}" == "MidoriSU" ]]; then
+            USER_REPO="midori01"
+          elif [[ "${{ matrix.variant }}" == "kowsu" ]]; then
+            USER_REPO="KOWX712"
+          else
+            USER_REPO="backslashxx"
+          fi
+          
           KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "$USER_REPO" "KernelSU" "master" || echo "unknown")
           echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
 
@@ -178,7 +187,7 @@ jobs:
           
           # Ensure localversion matches original working build
           sed -i '/CONFIG_LOCALVERSION/d' $DEFCONFIG
-          echo 'CONFIG_LOCALVERSION="-android16-5-g6928909e3148-abogki444322847-4k"' >> $DEFCONFIG
+          echo 'CONFIG_LOCALVERSION="-android16-5-gki-midori-build"' >> $DEFCONFIG
 
           cat >> $DEFCONFIG <<-'EOF'
           # Core Bootability & Performance
@@ -319,7 +328,7 @@ jobs:
 
           export KBUILD_BUILD_USER="kleaf"
           export KBUILD_BUILD_HOST="build-host"
-          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
+          export KBUILD_BUILD_TIMESTAMP="Wed Nov 26 11:16:14 UTC 2025"
           export KBUILD_BUILD_VERSION="1" 
           export ARCH=arm64
           export LLVM=1
@@ -343,7 +352,7 @@ jobs:
           FILE_SUFFIX=""
           [ "${{ matrix.variant }}" = "xxksu" ] && FILE_SUFFIX="-nosusfs"
           
-          ZIP_NAME="${{ matrix.variant }}_popsicle_6.12.${{ needs.setup.outputs.sub_level }}-${{ env.KSU_VER }}${FILE_SUFFIX}.zip"
+          ZIP_NAME="${{ matrix.variant }}_nezha_6.12.${{ needs.setup.outputs.sub_level }}-${{ env.KSU_VER }}${FILE_SUFFIX}.zip"
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
