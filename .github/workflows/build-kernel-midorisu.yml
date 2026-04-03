@@ -1,0 +1,205 @@
+name: Build GKI with MidoriSU
+
+on:
+  workflow_dispatch:
+    inputs:
+      sub_level:
+        description: 'Kernel sublevel (e.g. 23 for 6.12.23)'
+        required: true
+        default: '23'
+        type: string
+      create_release:
+        description: 'Publish a GitHub Release'
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      ANDROID_VERSION: 'android16'
+      KERNEL_VERSION: '6.12'
+      KSU_VARIANT: 'MidoriSU'
+      USER_REPO: 'midori01'
+      KSU_BRANCH: 'main'
+
+    steps:
+      - name: Checkout Workflow Repo
+        uses: actions/checkout@v6
+        with:
+          clean: false
+          submodules: true
+
+      - name: Free Disk Space & Install Dependencies
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune -af 2>/dev/null || true
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            binutils python-is-python3 libssl-dev libelf-dev libdw-dev \
+            curl bison flex make git perl gcc bc zip unzip aria2
+
+      - name: Clone Scripts Repo
+        run: |
+          git clone --depth=1 https://github.com/yapixel/sh "${{ github.workspace }}/sh"
+          chmod +x "${{ github.workspace }}/sh/get_ksuver.sh"
+
+      - name: Initialize Workspace & Toolchains
+        run: |
+          mkdir -p kernel_workspace && cd kernel_workspace
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip
+          unzip -q common.zip && mv "android_gki_kernel_common-android16-6.12-2025-06" common && rm common.zip
+
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip
+          unzip -q clang.zip -d clang19 && rm clang.zip
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip
+          unzip -q rust.zip -d rust && rm rust.zip
+          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip
+          unzip -q build-tools.zip && rm build-tools.zip
+
+          sed -i 's/ -dirty//g' common/scripts/setlocalversion
+
+      - name: Setup MidoriSU Source
+        run: |
+          cd kernel_workspace/common
+          git clone --depth=1 --branch ${{ env.KSU_BRANCH }} https://github.com/${{ env.USER_REPO }}/KernelSU.git KernelSU
+          
+          ln -sf ../KernelSU/kernel drivers/kernelsu
+
+          for subdir in core feature hook infra manager policy runtime selinux sulog supercall; do
+            dir="KernelSU/kernel/${subdir}"
+            [ -d "$dir" ] || continue
+            ln -sf ../include/klog.h  "$dir/klog.h"
+            ln -sf ../include/arch.h  "$dir/arch.h"
+            ln -sf ../include/ksu.h   "$dir/ksu.h"
+          done
+
+          mkdir -p KernelSU/kernel/include/uapi
+          ln -sf ../../policy/app_profile.h KernelSU/kernel/include/uapi/app_profile.h
+          for subdir in core feature hook infra manager policy runtime selinux sulog supercall; do
+            dir="KernelSU/kernel/${subdir}"
+            [ -d "$dir" ] || continue
+            ln -sfn ../include/uapi "$dir/uapi"
+          done
+
+      - name: Resolve KSU Version
+        run: |
+          KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "${{ env.USER_REPO }}" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
+          if [ "$KSU_VER" = "unknown" ]; then
+            exit 1
+          fi
+          echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
+
+      - name: Apply KMI Bypass
+        run: |
+          cd kernel_workspace/common
+          sed -i '/bad_version:/,/^}/ s/return 0;/return 1;/' kernel/module/version.c
+
+      - name: Inject Defconfig Flags
+        run: |
+          cd kernel_workspace
+          DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
+          
+          sed -i '/CONFIG_LOCALVERSION/d' $DEFCONFIG
+          echo 'CONFIG_LOCALVERSION="-android16-5-gki-midori-build"' >> $DEFCONFIG
+
+          cat >> $DEFCONFIG <<-'EOF'
+          CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
+          CONFIG_RUST=y
+          CONFIG_LOG_BUF_SHIFT=21
+          CONFIG_ANDROID_BINDER_IPC_RUST=m
+          CONFIG_TMPFS_XATTR=y
+          CONFIG_TMPFS_POSIX_ACL=y
+
+          CONFIG_IP_NF_TARGET_TTL=y
+          CONFIG_IP6_NF_TARGET_HL=y
+          CONFIG_IP6_NF_MATCH_HL=y
+          CONFIG_TCP_CONG_ADVANCED=y
+          CONFIG_TCP_CONG_BBR=y
+          CONFIG_NET_SCH_FQ=y
+
+          CONFIG_IP_SET=y
+          CONFIG_NETFILTER_XT_SET=y
+          CONFIG_IP_SET_MAX=65534
+          CONFIG_IP_SET_HASH_IP=y
+          CONFIG_IP_SET_HASH_NET=y
+          CONFIG_IP_SET_LIST_SET=y
+
+          CONFIG_NETFILTER_XT_TARGET_TPROXY=y
+          CONFIG_NETFILTER_XT_TARGET_REDIRECT=y
+          CONFIG_NETFILTER_XT_MATCH_SOCKET=y
+          CONFIG_NETFILTER_XT_MATCH_OWNER=y
+          CONFIG_IP6_NF_NAT=y
+          CONFIG_IP6_NF_TARGET_REDIRECT=y
+
+          CONFIG_KSU=y
+          CONFIG_KPROBES=y
+          EOF
+          
+          sed -i 's/check_defconfig//' ./common/build.config.gki || true
+
+      - name: Verify Kernel Configuration
+        run: |
+          DEFCONFIG="kernel_workspace/common/arch/arm64/configs/gki_defconfig"
+          if ! grep -q "CONFIG_KSU=y" "$DEFCONFIG"; then
+            exit 1
+          fi
+
+      - name: Compile Kernel
+        run: |
+          WORKDIR="$(pwd)"
+          export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
+          export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
+          
+          cd kernel_workspace/common
+
+          cat > cc-wrapper <<-'EOF'
+          #!/bin/bash
+          if [[ "$*" == *"--version"* ]]; then
+              echo "Android (14043575, +pgo, +bolt, +lto, +mlgo, based on r536225) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project b3a530ec6537146650e42be89f1089e9a3588460), LLD 19.0.1"
+              exit 0
+          fi
+          exec "$REAL_CLANG_PATH" "$@"
+          EOF
+          chmod +x cc-wrapper
+
+          export ARCH=arm64
+          export LLVM=1
+          export LLVM_IAS=1
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC="$(pwd)/cc-wrapper"
+          export LD=ld.lld
+
+          make -j$(nproc --all) O=out gki_defconfig
+          make -j$(nproc --all) O=out Image
+
+      - name: Package AnyKernel3
+        run: |
+          cd kernel_workspace
+          IMAGE="./common/out/arch/arm64/boot/Image"
+          git clone https://github.com/yapixel/AnyKernel3 --depth=1
+          cp "$IMAGE" ./AnyKernel3/ && cd AnyKernel3
+          
+          ZIP_NAME="MidoriSU_nezha_6.12.${{ github.event.inputs.sub_level }}-${{ env.KSU_VER }}.zip"
+          zip -r9 "../$ZIP_NAME" *
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MidoriSU-Kernel
+          path: kernel_workspace/${{ env.ZIP_NAME }}
+
+      - name: Publish Release
+        if: github.event.inputs.create_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v6.12.${{ github.event.inputs.sub_level }}-$(date +'%Y%m%d')"
+          name: "MidoriSU GKI 6.12.${{ github.event.inputs.sub_level }}"
+          files: kernel_workspace/*.zip
