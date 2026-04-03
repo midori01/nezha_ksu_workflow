@@ -265,6 +265,8 @@ jobs:
             cat >> $DEFCONFIG <<-'EOF'
           CONFIG_KSU=y
           CONFIG_KPROBES=y
+          CONFIG_KSU_LSM_SECURITY_HOOKS=y
+          CONFIG_KSU_TAMPER_SYSCALL_TABLE=y
           EOF
           fi
           
