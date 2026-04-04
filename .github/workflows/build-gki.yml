@@ -68,13 +68,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
-
     env:
       ENABLE_SUSFS: ${{ (matrix.variant == 'kowsu' || matrix.variant == 'xxksu') && 'false' || needs.setup.outputs.enable_susfs }}
       KSU_VARIANT: ${{ matrix.variant }}
       ANDROID_VERSION: 'android16'
       KERNEL_VERSION: '6.12'
-
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -145,7 +143,7 @@ jobs:
           esac
           echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
 
-      - name: Patching: xxKSU (Security & Scope Hooks)
+      - name: "Patching: xxKSU (Security & Scope Hooks)"
         if: matrix.variant == 'xxksu'
         run: |
           cd kernel_workspace/common
@@ -167,7 +165,7 @@ jobs:
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
 
-      - name: Patching: KowSU + SuSFS (10+50 Logic)
+      - name: "Patching: KowSU + SuSFS (10+50 Logic)"
         if: matrix.variant == 'kowsu+susfs'
         run: |
           cd kernel_workspace/common
@@ -178,7 +176,7 @@ jobs:
           cd KernelSU
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
 
-      - name: Patching: KowSU Stock (Manual Hooks & Inline)
+      - name: "Patching: KowSU Stock (Manual Hooks & Inline)"
         if: matrix.variant == 'kowsu'
         run: |
           cd kernel_workspace/common
@@ -242,7 +240,7 @@ jobs:
           EOF
           fi
 
-      - name: Compilation: GKI Image
+      - name: "Compilation: GKI Image"
         run: |
           WORKDIR="$(pwd)"
           export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
