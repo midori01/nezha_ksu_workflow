@@ -27,12 +27,10 @@ on:
         required: false
         default: true
         type: boolean
-
- permissions:
-   contents: write
-   packages: write
-
- jobs:
+      permissions:
+       contents: write
+       packages: write
+jobs:
    setup:
     runs-on: ubuntu-latest
     outputs:
