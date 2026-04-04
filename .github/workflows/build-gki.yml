@@ -183,8 +183,8 @@ jobs:
         run: |
           cd kernel_workspace/common
           # Kernel-side Manual Hooks (69-)
-          python3 heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/69_pure_manual_hooks_only.patch"
-          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/69_pure_manual_hooks_only.patch"
+          python3 heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/69_ksu_manual_hooks.patch"
+          patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/69_ksu_manual_hooks.patch"
           # KSU-side Inline Supercall
           cd KernelSU
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
