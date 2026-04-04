@@ -68,11 +68,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
+
     env:
       ENABLE_SUSFS: ${{ (matrix.variant == 'kowsu' || matrix.variant == 'xxksu') && 'false' || needs.setup.outputs.enable_susfs }}
       KSU_VARIANT: ${{ matrix.variant }}
       ANDROID_VERSION: 'android16'
       KERNEL_VERSION: '6.12'
+
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
@@ -105,6 +107,35 @@ jobs:
           aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip
           unzip -q build-tools.zip && rm build-tools.zip
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
+
+      - name: Create Patch Healer Script
+        run: |
+          cd kernel_workspace/common
+          cat > heal_patch.py << 'PYEOF'
+          import sys
+          with open(sys.argv[1], 'r', encoding='utf-8') as f:
+              lines = f.read().splitlines()
+          with open(sys.argv[1], 'w', encoding='utf-8', newline='\n') as f:
+              in_hunk = False
+              for line in lines:
+                  if line.startswith('@@ '):
+                      in_hunk = True
+                      f.write(line + '\n')
+                      continue
+                  if line.startswith(('--- ', '+++ ')):
+                      in_hunk = False
+                      f.write(line + '\n')
+                      continue
+                  if not in_hunk:
+                      f.write(line + '\n')
+                      continue
+                  if len(line) == 0:
+                      f.write(' \n')
+                  elif line[0] not in ['+', '-', ' ', '\\']:
+                      f.write(' ' + line + '\n')
+                  else:
+                      f.write(line + '\n')
+          PYEOF
 
       - name: Sync SuSFS Header Source
         if: env.ENABLE_SUSFS == 'true' && matrix.variant == 'kowsu+susfs'
@@ -147,19 +178,6 @@ jobs:
         if: matrix.variant == 'xxksu'
         run: |
           cd kernel_workspace/common
-          cat > heal_patch.py << 'PYEOF'
-          import sys
-          with open(sys.argv[1], 'r', encoding='utf-8') as f: lines = f.read().splitlines()
-          with open(sys.argv[1], 'w', encoding='utf-8', newline='\n') as f:
-              in_hunk = False
-              for line in lines:
-                  if line.startswith('@@ '): in_hunk = True; f.write(line + '\n'); continue
-                  if line.startswith(('--- ', '+++ ')): in_hunk = False; f.write(line + '\n'); continue
-                  if not in_hunk: f.write(line + '\n'); continue
-                  if len(line) == 0: f.write(' \n')
-                  elif line[0] not in ['+', '-', ' ', '\\']: f.write(' ' + line + '\n')
-                  else: f.write(line + '\n')
-          PYEOF
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch"
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
@@ -169,27 +187,29 @@ jobs:
         if: matrix.variant == 'kowsu+susfs'
         run: |
           cd kernel_workspace/common
+          # Kernel-side (50-)
           cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
+          
+          # KSU-side (10-) with Healer
           cd KernelSU
+          python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
 
       - name: "Patching: KowSU Stock (Manual Hooks & Inline)"
         if: matrix.variant == 'kowsu'
         run: |
           cd kernel_workspace/common
-          
-          # Heal the kernel-side manual hooks patch
+          # Kernel-side (69-) with Healer
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/69_pure_manual_hooks_only.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/69_pure_manual_hooks_only.patch"
           
-          # Heal and apply the KSU-side inline patch
+          # KSU-side (Supercall Inline) with Healer
           cd KernelSU
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
-
 
       - name: Apply KMI/Vermagic Bypass Logic
         run: |
