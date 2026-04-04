@@ -187,26 +187,28 @@ jobs:
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
 
       - name: Apply KowSU / No-SuSFS Patches
-        if: matrix.variant == 'kowsu' || matrix.variant == 'kowsu-nosusfs'
         run: |
           cd kernel_workspace/common
           
-          # SuSFS Kernel Side (Only kowsu with ENABLE_SUSFS)
+          # CASE 1: KOWSU WITH SUSFS
           if [[ "${{ matrix.variant }}" == "kowsu" && "${{ env.ENABLE_SUSFS }}" == "true" ]]; then
+            # Kernel-side from SuSFS repo
             cp "${{ env.SUSFS_DIR }}/kernel_patches/fs/susfs.c" fs/
             cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs.h" include/linux/
             cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
             patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
+            
+            # KSU-side from your repo
+            cd KernelSU
+            patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
           fi
 
-          # Pure manual hooks and Supercall Inline
-          patch -p1 < "${{ github.workspace }}/.github/patches/kowsu/69_pure_manual_hooks_only.patch"
-          cd KernelSU
-          patch -p1 < "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
-          
-          # Only apply KSU-side SuSFS patch for the kowsu variant
-          if [[ "${{ matrix.variant }}" == "kowsu" && "${{ env.ENABLE_SUSFS }}" == "true" ]]; then
-            patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
+          # CASE 2: KOWSU WITHOUT SUSFS
+          if [[ "${{ matrix.variant }}" == "kowsu-nosusfs" ]]; then
+            # Pure manual hooks and supercall inline
+            patch -p1 < "${{ github.workspace }}/.github/patches/kowsu/69_pure_manual_hooks_only.patch"
+            cd KernelSU
+            patch -p1 < "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
           fi
 
       - name: Apply KMI/Vermagic Bypass Patch
@@ -318,4 +320,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Download All Build Artifacts
-        uses: actions/download
+        uses: actions/download-artifact@v4
+        with:
+          pattern: kernel-*
+          path: release_zips
+          merge-multiple: true
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "${{ needs.setup.outputs.release_tag }}"
+          name: "GKI 6.12.${{ needs.setup.outputs.sub_level }} — ${{ needs.setup.outputs.release_tag }}"
+          body: "Built automatically via GitHub Actions."
+          files: release_zips/*.zip
