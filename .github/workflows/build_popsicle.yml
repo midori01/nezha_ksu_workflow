@@ -1,5 +1,5 @@
 Name: Build GKI SUSFS KowSU/xxKSU 
- on:
+on:
    workflow_dispatch:
     inputs:
       ksu_variant:
@@ -28,12 +28,12 @@ Name: Build GKI SUSFS KowSU/xxKSU
         default: true
         type: boolean
 
-permissions:
-  contents: write
-  packages: write
+ permissions:
+   contents: write
+   packages: write
 
-jobs:
-  setup:
+ jobs:
+   setup:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
