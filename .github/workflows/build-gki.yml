@@ -150,40 +150,32 @@ jobs:
           if ! grep -q "kernelsu/" drivers/Makefile; then echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile; fi
           if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig; fi
 
-          # 4. KowSU/SuSFS Global Header Injection
+          # 4. KowSU/SuSFS Nuclear Header Fix
           if [[ "${{ matrix.variant }}" == "kowsu" || "${{ matrix.variant }}" == "kowsu+susfs" ]]; then
-            echo "Applying Global Header Injection for KowSU subsystem..."
+            echo "Applying Nuclear Header Fix for KowSU Subsystem..."
             
-            # Step A: Inject uapi headers into the main kernel include tree
-            # This is the 'Nuclear Option' to fix missing definitions globally
-            mkdir -p include/uapi
-            cp KernelSU/kernel/policy/*.h include/uapi/
-            
-            # Step B: Inject core headers into the main kernel include tree
-            cp KernelSU/kernel/include/*.h include/
-            
-            # Step C: Subdirectory Fail-safe Symlinks
-            # This ensures every folder in the KSU tree sees headers locally
-            KSU_INC_ABS="$(realpath KernelSU/kernel/include)"
+            # Step A: Rewrite Source Code to remove "uapi/" prefix
+            # This forces the compiler to look in the current directory.
+            find drivers/kernelsu -type f \( -name "*.h" -o -name "*.c" \) -exec sed -i 's|uapi/app_profile.h|app_profile.h|g' {} +
+            find drivers/kernelsu -type f \( -name "*.h" -o -name "*.c" \) -exec sed -i 's|uapi/feature.h|feature.h|g' {} +
+            find drivers/kernelsu -type f \( -name "*.h" -o -name "*.c" \) -exec sed -i 's|uapi/allowlist.h|allowlist.h|g' {} +
+
+            # Step B: Physically copy all headers into EVERY subdirectory
+            # This ensures definitions are sitting right next to the .c files.
             KSU_POL_ABS="$(realpath KernelSU/kernel/policy)"
+            KSU_INC_ABS="$(realpath KernelSU/kernel/include)"
             
-            find KernelSU/kernel -type d | while read -r dir; do
-              [[ "$dir" == *"/include"* ]] && continue
-              ln -sf "$KSU_INC_ABS/klog.h" "$dir/klog.h"
-              ln -sf "$KSU_INC_ABS/arch.h" "$dir/arch.h"
-              ln -sf "$KSU_INC_ABS/ksu.h"  "$dir/ksu.h"
-              # Create a uapi symlink in each folder pointing to the policy folder
-              ln -sfn "$KSU_POL_ABS" "$dir/uapi"
+            find drivers/kernelsu -type d | while read -r dir; do
+              cp -f "${KSU_POL_ABS}"/*.h "$dir/" 2>/dev/null || true
+              cp -f "${KSU_INC_ABS}"/*.h "$dir/" 2>/dev/null || true
             done
-            
-            # Step D: Inject Build Flags for Priority Search
-            # subdir-ccflags-y ensures these paths carry into core, feature, etc.
-            {
-              echo 'ccflags-y += -I$(srctree)/drivers/kernelsu/include'
-              echo 'subdir-ccflags-y += -I$(srctree)/drivers/kernelsu/include'
-              echo 'ccflags-y += -I$(srctree)/drivers/kernelsu'
-              echo 'subdir-ccflags-y += -I$(srctree)/drivers/kernelsu'
-            } >> drivers/kernelsu/Makefile
+
+            # Step C: Global Main Kernel Injection
+            # Fixes visibility for SuSFS hooks and architecture-specific code
+            mkdir -p include/uapi
+            cp -f "${KSU_POL_ABS}"/*.h include/uapi/
+            cp -f "${KSU_POL_ABS}"/*.h include/
+            cp -f "${KSU_INC_ABS}"/*.h include/
           fi
 
       - name: Resolve KernelSU Version
@@ -218,7 +210,7 @@ jobs:
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
           
-          # 2. KSU-side SuSFS (Enter KernelSU folder)
+          # 2. KSU-side SuSFS
           cd KernelSU
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
@@ -231,7 +223,7 @@ jobs:
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/69_ksu_manual_hooks.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/69_ksu_manual_hooks.patch"
           
-          # 2. KSU-side Patch (Enter KernelSU folder)
+          # 2. KSU-side Patch
           cd KernelSU
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
