@@ -99,6 +99,7 @@ jobs:
           unzip -q rust.zip -d rust && rm rust.zip
           aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip
           unzip -q build-tools.zip && rm build-tools.zip
+          echo "-android16-5-gki-midori-build" > common/localversion
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
 
       - name: Create Global Patch Healer Script
