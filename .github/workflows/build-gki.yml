@@ -133,7 +133,7 @@ jobs:
           SUSFS_VERSION=$(grep -m1 'define SUSFS_VERSION' "$SUSFS_DIR/kernel_patches/include/linux/susfs.h" | sed 's/.*"\(.*\)"/\1/')
           echo "SUSFS_VERSION=${SUSFS_VERSION:-unknown}" >> $GITHUB_ENV
 
-      - name: Integrate KernelSU into Source Tree
+            - name: Integrate KernelSU into Source Tree
         run: |
           cd kernel_workspace/common
           
@@ -143,38 +143,28 @@ jobs:
             *)       git clone --depth=1 --branch master https://github.com/KOWX712/KernelSU.git KernelSU ;;
           esac
           
-          # 2. Standard Linkage
+          # 2. Link KernelSU to the drivers directory
           ln -sf ../KernelSU/kernel drivers/kernelsu
+
+          # 3. Inject into Build System
           if ! grep -q "kernelsu/" drivers/Makefile; then echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile; fi
           if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig; fi
 
-          # 3. KowSU-Specific Fixes (Only applied to kowsu variants)
+          # 4. KowSU-Specific Fix (Only for KowSU variants)
           if [[ "${{ matrix.variant }}" == "kowsu" || "${{ matrix.variant }}" == "kowsu+susfs" ]]; then
-            echo "Applying Reference Fixes (Recursive) for KowSU..."
-            KSU_ROOT="KernelSU/kernel"
+            echo "Applying Header Fix for KowSU..."
             
-            # Setup the master uapi folder
-            mkdir -p "$KSU_ROOT/include/uapi"
-            ln -sf ../../policy/app_profile.h "$KSU_ROOT/include/uapi/app_profile.h"
+            # Step A: Create the internal UAPI structure KowSU expects
+            # This makes sure KernelSU/kernel/include/uapi/app_profile.h exists
+            mkdir -p KernelSU/kernel/include/uapi
+            ln -sf ../../policy/app_profile.h KernelSU/kernel/include/uapi/app_profile.h
 
-            # Use find to apply Fix 1 and Fix 2 to EVERY subdirectory
-            # This fixes the 'hook/arm64' errors you saw earlier
-            ABS_INC=$(realpath "$KSU_ROOT/include")
-            
-            find "$KSU_ROOT" -type d | while read -r dir; do
-              # Skip include and uapi folders to avoid self-referencing
-              [[ "$dir" == *"/include"* ]] && continue
-              [[ "$dir" == *"/uapi"* ]] && continue
-              
-              # Fix 1: local headers (klog.h, arch.h, ksu.h)
-              ln -sf "$ABS_INC/klog.h" "$dir/klog.h"
-              ln -sf "$ABS_INC/arch.h" "$dir/arch.h"
-              ln -sf "$ABS_INC/ksu.h"  "$dir/ksu.h"
-              
-              # Fix 2: uapi directory link
-              ln -sfn "$ABS_INC/uapi" "$dir/uapi"
-            done
+            # Step B: Force the compiler to look in the KernelSU include directory
+            # We inject a ccflags-y line into the KernelSU Makefile so the 
+            # compiler always finds klog.h and uapi/app_profile.h
+            echo 'ccflags-y += -I$(srctree)/drivers/kernelsu/include' >> drivers/kernelsu/Makefile
           fi
+
 
       - name: Resolve KernelSU Version
         run: |
