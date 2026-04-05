@@ -140,7 +140,7 @@ jobs:
                 https://github.com/midori01/KernelSU.git KernelSU
               ;;
             "MidoriSU-xx")
-              KSU_BRANCH="maim"
+              KSU_BRANCH="main"
               git clone --depth=1 --branch "$KSU_BRANCH" \
                 https://github.com/azkx/KernelSU.git KernelSU
               ;;
