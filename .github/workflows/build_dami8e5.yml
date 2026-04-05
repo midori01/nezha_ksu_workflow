@@ -1,4 +1,4 @@
-name: Build GKI SUSFS KowSU/xxKSU 
+name: Build GKI SUSFS MidoriSU
 
 on:
    workflow_dispatch:
@@ -10,9 +10,9 @@ on:
         type: choice
         options:
           - all
-          - kowsu
-          - kowsu-nosusfs
-          - xxksu
+          - MidoriSU
+          - MidoriSU-nosusfs
+          - MidoriSU-xx
       disable_susfs:
         description: 'Disable SuSFS features'
         required: false
@@ -47,7 +47,7 @@ jobs:
         run: |
           VARIANT="${{ github.event.inputs.ksu_variant }}"
           if [ "$VARIANT" = "all" ]; then
-            echo 'matrix={"variant":["kowsu","kowsu-nosusfs","xxksu"]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"variant":["MidoriSU","MidoriSU-nosusfs","MidoriSU-xx"]}' >> $GITHUB_OUTPUT
           else
             echo "matrix={\"variant\":[\"$VARIANT\"]}" >> $GITHUB_OUTPUT
           fi
@@ -70,7 +70,7 @@ jobs:
 
     env:
       # Force SuSFS off if 'kowsu-nosusfs' is selected
-      ENABLE_SUSFS: ${{ matrix.variant == 'kowsu-nosusfs' && 'false' || needs.setup.outputs.enable_susfs }}
+      ENABLE_SUSFS: ${{ matrix.variant == 'MidoriSU-nosusfs' && 'false' || needs.setup.outputs.enable_susfs }}
       KSU_VARIANT: ${{ matrix.variant }}
       ANDROID_VERSION: 'android16'
       KERNEL_VERSION: '6.12'
@@ -134,15 +134,15 @@ jobs:
         run: |
           cd kernel_workspace/common
           case "${{ matrix.variant }}" in
-            "kowsu"|"kowsu-nosusfs")
-              KSU_BRANCH="master"
+            "MidoriSU"|"MidoriSU-nosusfs")
+              KSU_BRANCH="main"
               git clone --depth=1 --branch "$KSU_BRANCH" \
-                https://github.com/KOWX712/KernelSU.git KernelSU
+                https://github.com/midori01/KernelSU.git KernelSU
               ;;
-            "xxksu")
-              KSU_BRANCH="master"
+            "MidoriSU-xx")
+              KSU_BRANCH="maim"
               git clone --depth=1 --branch "$KSU_BRANCH" \
-                https://github.com/backslashxx/KernelSU.git KernelSU
+                https://github.com/azkx/KernelSU.git KernelSU
               ;;
           esac
           echo "KSU_BRANCH=${KSU_BRANCH}" >> $GITHUB_ENV
@@ -158,11 +158,11 @@ jobs:
       - name: Resolve KSU Version
         run: |
           case "${{ matrix.variant }}" in
-            "kowsu"|"kowsu-nosusfs")
-              KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "KOWX712" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
+            "MidoriSU"|"MidoriSU-nosusfs")
+              KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "midori01" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
               ;;
             "xxksu")
-              KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "backslashxx" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
+              KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "azkx" "KernelSU" "${{ env.KSU_BRANCH }}" || echo "unknown")
               ;;
           esac
           echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
@@ -204,8 +204,8 @@ jobs:
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
 
-      - name: Apply xxKSU Patches
-        if: matrix.variant == 'xxksu'
+      - name: Apply MidoriSU-xx Patches
+        if: matrix.variant == 'MidoriSU-xx'
         run: |
           cd kernel_workspace/common
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/xxksu_susfs_compat.patch"
@@ -220,8 +220,8 @@ jobs:
             patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch"
           fi
 
-      - name: Apply KowSU / No-SuSFS Patches
-        if: matrix.variant == 'kowsu' || matrix.variant == 'kowsu-nosusfs'
+      - name: Apply MidoriSU / MidoriSU-xx Patches
+        if: matrix.variant == 'MidoriSU' || matrix.variant == 'MidoriSU-nosusfs'
         run: |
           cd kernel_workspace/common
           
@@ -232,8 +232,8 @@ jobs:
           cd KernelSU
           patch -p1 < "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
           
-          # Only apply SuSFS ksu-side patch if it's the 'kowsu' (with susfs) variant
-          if [[ "${{ matrix.variant }}" == "kowsu" && "${{ env.ENABLE_SUSFS }}" == "true" ]]; then
+          # Only apply SuSFS ksu-side patch if it's the 'MidoriSU' (with susfs) variant
+          if [[ "${{ matrix.variant }}" == "MidoriSU" && "${{ env.ENABLE_SUSFS }}" == "true" ]]; then
             patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
           fi
 
@@ -274,7 +274,7 @@ jobs:
           echo "CONFIG_KSU=y" >> $DEFCONFIG
           echo "CONFIG_KSU_DEBUG=n" >> $DEFCONFIG
 
-          if [ "${{ matrix.variant }}" = "xxksu" ]; then
+          if [ "${{ matrix.variant }}" = "MidoriSU-xx" ]; then
             cat >> $DEFCONFIG <<-'EOF'
           CONFIG_KSU_EXTRAS=y
           CONFIG_KSU_LSM_SECURITY_HOOKS=n
@@ -316,8 +316,8 @@ jobs:
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
           chmod +x libfakestat.so libfaketimeMT.so
 
-          export FAKESTAT="2025-09-12 04:57:41"
-          export FAKETIME="@2025-09-12 04:57:41"
+          export FAKESTAT="2026-02-02 02:02:02"
+          export FAKETIME="@2026-02-02 02:02:02"
           export PRELOAD_LIBS="$(pwd)/libfakestat.so $(pwd)/libfaketimeMT.so"
           export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
 
@@ -355,7 +355,7 @@ jobs:
           export OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
           export KBUILD_BUILD_USER="kleaf"
           export KBUILD_BUILD_HOST="build-host"
-          export KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
+          export KBUILD_BUILD_TIMESTAMP="Mon Feb 02 02:02:02 JST 2026"
 
           make -j$(nproc --all) O=out gki_defconfig
           export CC="$(pwd)/cc-wrapper"
@@ -404,7 +404,7 @@ jobs:
           VARIANT_INPUT="${{ github.event.inputs.ksu_variant }}"
           SUSFS_ENABLED="${{ needs.setup.outputs.enable_susfs }}"
           echo "full_version=6.12.${SUB}" >> $GITHUB_OUTPUT
-          echo "time_fmt=$(TZ='Asia/Shanghai' date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
+          echo "time_fmt=$(TZ='Asia/Tokyo' date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -416,5 +416,5 @@ jobs:
             | :--- | :--- |
             | **Kernel** | `${{ steps.meta.outputs.full_version }}` (android16-6.12, SM8850) |
             | **Variant** | `${{ github.event.inputs.ksu_variant }}` |
-            | **Build Time** | ${{ steps.meta.outputs.time_fmt }} (CST) |
+            | **Build Time** | ${{ steps.meta.outputs.time_fmt }} (JST) |
           files: release_zips/*.zip
