@@ -1,4 +1,4 @@
-name: Build GKI SUSFS with KowSU/xxksu
+name: Build GKI SUSFS with MidoriSU
 
 on:
   workflow_dispatch:
@@ -10,9 +10,9 @@ on:
         type: choice
         options:
           - all
-          - kowsu+susfs
-          - kowsu
-          - xxksu
+          - MidoriSU+susfs
+          - MidoriSU
+          - MidoriSU-xx
       sub_level:
         description: 'Kernel sublevel (e.g. 23 for 6.12.23)'
         required: true
@@ -42,7 +42,7 @@ jobs:
         run: |
           VARIANT="${{ github.event.inputs.ksu_variant }}"
           if [ "$VARIANT" = "all" ]; then
-            echo 'matrix={"variant":["kowsu+susfs","kowsu","xxksu"]}' >> $GITHUB_OUTPUT
+            echo 'matrix={"variant":["MidoriSU+susfs","MidoriSU","MidoriSU-xx"]}' >> $GITHUB_OUTPUT
           else
             echo "matrix={\"variant\":[\"$VARIANT\"]}" >> $GITHUB_OUTPUT
           fi
@@ -63,7 +63,7 @@ jobs:
       matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     env:
-      ENABLE_SUSFS: ${{ matrix.variant == 'kowsu+susfs' && 'true' || 'false' }}
+      ENABLE_SUSFS: ${{ matrix.variant == 'MidoriSU+susfs' && 'true' || 'false' }}
       KSU_VARIANT: ${{ matrix.variant }}
       ANDROID_VERSION: 'android16'
       KERNEL_VERSION: '6.12'
@@ -123,7 +123,7 @@ jobs:
           if __name__ == "__main__": heal(sys.argv[1])
           PYEOF
 
-      - name: Sync SuSFS Source (Only for kowsu+susfs)
+      - name: Sync SuSFS Source (Only for MidoriSU+susfs)
         if: env.ENABLE_SUSFS == 'true'
         run: |
           SUSFS_DIR="${{ github.workspace }}/susfs4ksu"
@@ -139,8 +139,8 @@ jobs:
 
           # 1. Select and Clone Repository
           case "${{ matrix.variant }}" in
-            "xxksu") git clone --depth=1 --branch master https://github.com/backslashxx/KernelSU.git KernelSU ;;
-            *)       git clone --depth=1 --branch master https://github.com/KOWX712/KernelSU.git KernelSU ;;
+            "MidoriSU-xx") git clone --depth=1 --branch main https://github.com/azkx/KernelSU.git KernelSU ;;
+            *)       git clone --depth=1 --branch main https://github.com/midori01/KernelSU.git KernelSU ;;
           esac
 
           # 2. Link KernelSU to drivers
@@ -157,8 +157,8 @@ jobs:
           # there already — but the compiler needs the include path anchored
           # at drivers/kernelsu/. We also populate uapi/ inside every subdir
           # so that relative "uapi/feature.h" resolves from any .c file.
-          if [[ "${{ matrix.variant }}" == "kowsu" || "${{ matrix.variant }}" == "kowsu+susfs" ]]; then
-            echo "Applying KowSU Header Fix..."
+          if [[ "${{ matrix.variant }}" == "MidoriSU" || "${{ matrix.variant }}" == "MidoriSU+susfs" ]]; then
+            echo "Applying MidoriSU Header Fix..."
 
             KSU_KERNEL_ABS="$(realpath KernelSU/kernel)"
             KSU_POL_ABS="${KSU_KERNEL_ABS}/policy"
@@ -199,17 +199,17 @@ jobs:
       - name: Resolve KernelSU Version
         run: |
           case "${{ matrix.variant }}" in
-            "kowsu+susfs"|"kowsu")
-              KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "KOWX712" "KernelSU" "master" || echo "unknown")
+            "MidoriSU+susfs"|"MidoriSU")
+              KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "midori01" "KernelSU" "main" || echo "unknown")
               ;;
-            "xxksu")
-              KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "backslashxx" "KernelSU" "master" || echo "unknown")
+            "MidoriSU-xx")
+              KSU_VER=$("${{ github.workspace }}/sh/get_ksuver.sh" "azkx" "KernelSU" "main" || echo "unknown")
               ;;
           esac
           echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
 
-      - name: "Patching: xxKSU (Security & Scope Hooks)"
-        if: matrix.variant == 'xxksu'
+      - name: "Patching: MidoriSU-xx (Security & Scope Hooks)"
+        if: matrix.variant == 'MidodiSU-xx'
         run: |
           cd kernel_workspace/common
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch"
@@ -217,8 +217,8 @@ jobs:
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/scope-min-hooks-v1.9.patch"
 
-      - name: "Patching: KowSU + SuSFS (10+50 Logic)"
-        if: matrix.variant == 'kowsu+susfs'
+      - name: "Patching: MidoriSU + SuSFS (10+50 Logic)"
+        if: matrix.variant == 'MidoriSU+susfs'
         run: |
           cd kernel_workspace/common
 
@@ -233,8 +233,8 @@ jobs:
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
 
-      - name: "Patching: KowSU Stock (Manual Hooks & Inline)"
-        if: matrix.variant == 'kowsu'
+      - name: "Patching: MidoriSU Stock (Manual Hooks & Inline)"
+        if: matrix.variant == 'MidoriSU'
         run: |
           cd kernel_workspace/common
           # 1. Main Kernel Patch
@@ -298,13 +298,13 @@ jobs:
           EOF
           fi
           
-      - name: Debug KowSU exported symbols
+      - name: Debug MidoriSU exported symbols
         run: |
          grep -rn "ksu_handle_execveat\|ksu_handle_newfstat_ret\|ksu_handle_stat\|ksu_handle_faccessat\|ksu_handle_sys_reboot" \
          $GITHUB_WORKSPACE/kernel_workspace/common/KernelSU/kernel/ || echo "NONE FOUND"
 
-      - name: Debug xxKSU hook sites
-        if: matrix.variant == 'xxksu'
+      - name: Debug MidoriSU-xx hook sites
+        if: matrix.variant == 'MidoriSU-xx'
         run: |
           KD=$GITHUB_WORKSPACE/kernel_workspace/common
           echo "=== fs/exec.c around do_execve ==="
@@ -325,8 +325,8 @@ jobs:
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
           wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
           chmod +x libfakestat.so libfaketimeMT.so
-          export FAKESTAT="2025-09-12 04:57:41"
-          export FAKETIME="@2025-09-12 04:57:41"
+          export FAKESTAT="2026-02-02 02:02:02"
+          export FAKETIME="@2026-02-02 02:02:02"
           export PRELOAD_LIBS="$(pwd)/libfakestat.so $(pwd)/libfaketimeMT.so"
           export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
           echo '#!/bin/bash' > cc-wrapper && echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper && echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper && echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper && echo '$REAL_CLANG_PATH "$@"' >> cc-wrapper
@@ -335,7 +335,7 @@ jobs:
           COMMON_REAL_PATH=$(pwd -P) && ROOT_REAL_PATH=$(dirname "$COMMON_REAL_PATH")
           export KCFLAGS="-fdebug-prefix-map=$ROOT_REAL_PATH=. -fmacro-prefix-map=$ROOT_REAL_PATH=. -ffile-prefix-map=$ROOT_REAL_PATH=. -no-canonical-prefixes -O2 -pipe -Wno-error -fno-stack-protector"
           export RUSTC="rustc" BINDGEN="bindgen" CC="clang" LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang19/lib" HOSTCC=clang LD="ld.lld" HOSTLD=ld.lld LLVM=1 LLVM_IAS=1 ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
-          export KBUILD_BUILD_USER="kleaf" KBUILD_BUILD_HOST="build-host" KBUILD_BUILD_TIMESTAMP="Fri Sep 12 04:57:41 UTC 2025"
+          export KBUILD_BUILD_USER="kleaf" KBUILD_BUILD_HOST="build-host" KBUILD_BUILD_TIMESTAMP="Mon Feb 02 02:02:02 JST 2026"
           make -j$(nproc --all) O=out gki_defconfig
           export CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper"
           make -j$(nproc --all) O=out Image
@@ -348,7 +348,7 @@ jobs:
           cp ./common/out/arch/arm64/boot/Image ./AnyKernel3/
           BUILD_DATE="$(date +'%d%m%y')"
           cd AnyKernel3
-          ZIP_NAME="${{ matrix.variant }}_popsicle_6.12.${{ needs.setup.outputs.sub_level }}+${{ env.KSU_VER }}-${BUILD_DATE}-susfs-${{ env.SUSFS_VERSION || 'none' }}.zip"
+          ZIP_NAME="${{ matrix.variant }}_nezha_6.12.${{ needs.setup.outputs.sub_level }}+${{ env.KSU_VER }}-${BUILD_DATE}-susfs-${{ env.SUSFS_VERSION || 'none' }}.zip"
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
