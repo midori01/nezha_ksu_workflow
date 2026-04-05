@@ -150,34 +150,31 @@ jobs:
           if ! grep -q "kernelsu/" drivers/Makefile; then echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile; fi
           if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig; fi
 
-          # 4. KowSU-Specific Recursive Header Fixes
+          # 4. KowSU-Specific Fix (Stock & SuSFS)
           if [[ "${{ matrix.variant }}" == "kowsu" || "${{ matrix.variant }}" == "kowsu+susfs" ]]; then
-            echo "Applying Recursive Absolute Header Fixes for KowSU..."
-            KSU_INC_ABS="$(realpath KernelSU/kernel/include)"
-            KSU_POLICY_ABS="$(realpath KernelSU/kernel/policy)"
+            echo "Applying Physical Header Fix for KowSU/SuSFS..."
             
-            # Step A: Setup the UAPI structure correctly
-            mkdir -p "$KSU_INC_ABS/uapi"
-            ln -sf "../../../policy/app_profile.h" "$KSU_INC_ABS/uapi/app_profile.h"
+            # Step A: Physically copy UAPI headers to avoid symlink resolution issues in O=out builds
+            mkdir -p drivers/kernelsu/include/uapi
+            cp KernelSU/kernel/policy/app_profile.h drivers/kernelsu/include/uapi/app_profile.h
+            
+            # Step B: Copy core headers into the root of kernelsu for local includes
+            cp KernelSU/kernel/include/klog.h drivers/kernelsu/klog.h
+            cp KernelSU/kernel/include/arch.h drivers/kernelsu/arch.h
+            cp KernelSU/kernel/include/ksu.h drivers/kernelsu/ksu.h
 
-            # Step B: Recursive Absolute Symlinks for klog.h, arch.h, ksu.h, and uapi/
-            find KernelSU/kernel -type d | while read -r dir; do
-              [[ "$dir" == *"/include"* ]] && continue
-              ln -sf "$KSU_INC_ABS/klog.h" "$dir/klog.h"
-              ln -sf "$KSU_INC_ABS/arch.h" "$dir/arch.h"
-              ln -sf "$KSU_INC_ABS/ksu.h"  "$dir/ksu.h"
-              ln -sfn "$KSU_INC_ABS/uapi" "$dir/uapi"
-            done
-
-            # Step C: Inject Kbuild flags (Essential for O=out builds)
+            # Step C: Inject Kbuild flags to force header search paths
+            # subdir-ccflags-y ensures flags propagate to subdirectories (core, feature, etc.)
             {
-              echo 'subdir-ccflags-y += -I$(srctree)/drivers/kernelsu/include'
               echo 'ccflags-y += -I$(srctree)/drivers/kernelsu/include'
+              echo 'subdir-ccflags-y += -I$(srctree)/drivers/kernelsu/include'
+              echo 'ccflags-y += -I$(srctree)/drivers/kernelsu'
+              echo 'subdir-ccflags-y += -I$(srctree)/drivers/kernelsu'
             } >> drivers/kernelsu/Makefile
             
-            # Step D: Main Include fail-safe
+            # Step D: Global fail-safe
             mkdir -p include/uapi
-            ln -sf "$KSU_POLICY_ABS/app_profile.h" "include/uapi/app_profile.h"
+            cp KernelSU/kernel/policy/app_profile.h include/uapi/app_profile.h
           fi
 
       - name: Resolve KernelSU Version
@@ -212,7 +209,7 @@ jobs:
           cp "${{ env.SUSFS_DIR }}/kernel_patches/include/linux/susfs_def.h" include/linux/
           patch -p1 < "${{ env.SUSFS_DIR }}/kernel_patches/50_add_susfs_in_gki-android16-6.12.patch"
           
-          # 2. KSU-side SuSFS (Targeting KernelSU source)
+          # 2. KSU-side SuSFS (Move into KernelSU folder)
           cd KernelSU
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/10_enable_susfs_for_ksu.patch"
@@ -225,7 +222,7 @@ jobs:
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/69_ksu_manual_hooks.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/69_ksu_manual_hooks.patch"
           
-          # 2. KSU Patch
+          # 2. KSU Patch (Move into KernelSU folder)
           cd KernelSU
           python3 ../heal_patch.py "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
           patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/kowsu/supercall_inline.patch"
