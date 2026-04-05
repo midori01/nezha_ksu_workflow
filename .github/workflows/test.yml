@@ -199,7 +199,7 @@ jobs:
           echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
 
       - name: "Patching: xxKSU (Security & Scope Hooks)"
-        if: matrix.variant == 'xxksu+susfs' || matrix.variant == 'xxksu'
+        if: matrix.variant == 'xxksu'
         run: |
           cd kernel_workspace/common
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch"
