@@ -220,7 +220,7 @@ jobs:
             patch -p1 -l --fuzz=3 < "${{ github.workspace }}/.github/patches/xxksu/10_enable_susfs_for_ksu.patch"
           fi
 
-      - name: Apply MidoriSU / MidoriSU-xx Patches
+      - name: Apply MidoriSU / MidoriSU-nosusfs Patches
         if: matrix.variant == 'MidoriSU' || matrix.variant == 'MidoriSU-nosusfs'
         run: |
           cd kernel_workspace/common
