@@ -14,9 +14,14 @@ on:
           - MidoriSU
           - MidoriSU-xx
       sub_level:
-        description: 'Kernel sublevel (e.g. 23 for 6.12.23)'
+        description: 'Kernel sublevel'
         required: true
-        default: '23'
+        default: '69'
+        type: string
+      device_codename:
+        description: 'Device Codename for Zip name'
+        required: true
+        default: 'gki'
         type: string
       create_release:
         description: 'Publish a GitHub Release'
@@ -88,19 +93,37 @@ jobs:
           git clone --depth=1 https://github.com/yapixel/sh "${{ github.workspace }}/sh"
           chmod +x "${{ github.workspace }}/sh/get_ksuver.sh"
 
+      - name: Cache Toolchains
+        uses: actions/cache@v4
+        id: cache-toolchain
+        with:
+          path: |
+            kernel_workspace/clang19
+            kernel_workspace/rust
+            kernel_workspace/build-tools
+          key: toolchain-clang19-r536225
+
       - name: Download & Extract Kernel Source and Toolchains
         run: |
           mkdir -p kernel_workspace && cd kernel_workspace
+          
+          # Source is always downloaded fresh
           aria2c -s16 -x16 -k1M https://github.com/cctv18/android_gki_kernel_common/archive/refs/heads/android16-6.12-2025-06.zip -o common.zip
           unzip -q common.zip && mv "android_gki_kernel_common-android16-6.12-2025-06" common && rm common.zip
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip
-          unzip -q clang.zip -d clang19 && rm clang.zip
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip
-          unzip -q rust.zip -d rust && rm rust.zip
-          aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip
-          unzip -q build-tools.zip && rm build-tools.zip
           echo "-android16-5-gki-midori-build" > common/localversion
           sed -i 's/ -dirty//g' common/scripts/setlocalversion
+
+          # Download Toolchains only if Cache Missed
+          if [ "${{ steps.cache-toolchain.outputs.cache-hit }}" != "true" ]; then
+            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/clang-r536225.zip -o clang.zip
+            unzip -q clang.zip -d clang19 && rm clang.zip
+            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/rust.zip -o rust.zip
+            unzip -q rust.zip -d rust && rm rust.zip
+            aria2c -s16 -x16 -k1M https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang19-r536225/build-tools.zip -o build-tools.zip
+            unzip -q build-tools.zip && rm build-tools.zip
+          else
+            echo "Toolchains restored from cache!"
+          fi
 
       - name: Create Global Patch Healer Script
         run: |
@@ -151,50 +174,23 @@ jobs:
           if ! grep -q "kernelsu/" drivers/Makefile; then echo 'obj-$(CONFIG_KSU) += kernelsu/' >> drivers/Makefile; fi
           if ! grep -q "drivers/kernelsu/Kconfig" drivers/Kconfig; then sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig; fi
 
-          # 4. KowSU Header Fix
-          # The restructured KowSU source uses relative includes:
-          #   kernel_umount.c -> policy/feature.h -> uapi/feature.h
-          # drivers/kernelsu is a symlink to KernelSU/kernel, so uapi/ exists
-          # there already — but the compiler needs the include path anchored
-          # at drivers/kernelsu/. We also populate uapi/ inside every subdir
-          # so that relative "uapi/feature.h" resolves from any .c file.
+          # 4. MidoriSU Header Fix (Optimized)
           if [[ "${{ matrix.variant }}" == "MidoriSU" || "${{ matrix.variant }}" == "MidoriSU+susfs" ]]; then
             echo "Applying MidoriSU Header Fix..."
 
-            KSU_KERNEL_ABS="$(realpath KernelSU/kernel)"
-            KSU_POL_ABS="${KSU_KERNEL_ABS}/policy"
-            KSU_INC_ABS="${KSU_KERNEL_ABS}/include"
-            KSU_UAPI_ABS="$(realpath KernelSU/uapi)"
+            # Step A: Guarantee uapi exists
+            mkdir -p KernelSU/kernel/uapi
+            cp -f KernelSU/uapi/*.h KernelSU/kernel/uapi/ 2>/dev/null || true
 
-            # Step A: Create uapi/ inside drivers/kernelsu and populate it.
-            # Since drivers/kernelsu is a symlink to KernelSU/kernel, writing
-            # here writes directly into KernelSU/kernel/uapi (which already
-            # exists). This is a no-op if the symlink resolves correctly, but
-            # we do it explicitly to guarantee the files are present.
-            mkdir -p "${KSU_KERNEL_ABS}/uapi"
-            cp -f "${KSU_UAPI_ABS}"/*.h "${KSU_KERNEL_ABS}/uapi/" 2>/dev/null || true
+            # Step B: Inject include paths dynamically into Kbuild
+            echo 'ccflags-y += -I$(srctree)/drivers/kernelsu/uapi -I$(srctree)/drivers/kernelsu/include -I$(srctree)/drivers/kernelsu/policy' >> drivers/kernelsu/Makefile
 
-            # Step B: Copy uapi/ headers into every subdirectory so that
-            # #include "uapi/feature.h" resolves from any compilation unit
-            # regardless of which subdir the .c file lives in.
-            find drivers/kernelsu -type d | while read -r dir; do
-              mkdir -p "$dir/uapi"
-              cp -f "${KSU_UAPI_ABS}"/*.h "$dir/uapi/" 2>/dev/null || true
-            done
-
-            # Step C: Copy policy/ and include/ headers into every subdir
-            # (preserves existing behaviour for app_profile.h etc.)
-            find drivers/kernelsu -type d | while read -r dir; do
-              cp -f "${KSU_POL_ABS}"/*.h "$dir/" 2>/dev/null || true
-              cp -f "${KSU_INC_ABS}"/*.h "$dir/" 2>/dev/null || true
-            done
-
-            # Step D: Global main kernel injection for SuSFS hooks
+            # Step C: Global main kernel injection for SuSFS hooks
             mkdir -p include/uapi
-            cp -f "${KSU_POL_ABS}"/*.h include/uapi/
-            cp -f "${KSU_POL_ABS}"/*.h include/
-            cp -f "${KSU_INC_ABS}"/*.h include/
-            cp -f "${KSU_UAPI_ABS}"/*.h include/uapi/
+            cp -f KernelSU/kernel/policy/*.h include/uapi/ 2>/dev/null || true
+            cp -f KernelSU/kernel/policy/*.h include/ 2>/dev/null || true
+            cp -f KernelSU/kernel/include/*.h include/ 2>/dev/null || true
+            cp -f KernelSU/uapi/*.h include/uapi/ 2>/dev/null || true
           fi
 
       - name: Resolve KernelSU Version
@@ -210,7 +206,7 @@ jobs:
           echo "KSU_VER=${KSU_VER}" >> $GITHUB_ENV
 
       - name: "Patching: MidoriSU-xx (Security & Scope Hooks)"
-        if: matrix.variant == 'MidodiSU-xx'
+        if: matrix.variant == 'MidoriSU-xx'
         run: |
           cd kernel_workspace/common
           python3 heal_patch.py "${{ github.workspace }}/.github/patches/xxksu/manual-security-hooks-v1.8.patch"
@@ -268,10 +264,14 @@ jobs:
         run: |
           cd kernel_workspace
           DEFCONFIG="./common/arch/arm64/configs/gki_defconfig"
+          
+          # Enable basic kernel features and the requested fix parameters
           echo "CONFIG_KSU=y" >> $DEFCONFIG
           echo "CONFIG_KSU_DEBUG=n" >> $DEFCONFIG
+          echo "CONFIG_TMPFS_XATTR=y" >> $DEFCONFIG
+          echo "CONFIG_OVERLAY_FS=y" >> $DEFCONFIG
 
-          if [ "${{ matrix.variant }}" = "xxksu" ]; then
+          if [ "${{ matrix.variant }}" = "MidoriSU-xx" ]; then
             cat >> $DEFCONFIG <<-'EOF'
           CONFIG_KSU_EXTRAS=y
           CONFIG_KSU_LSM_SECURITY_HOOKS=n
@@ -323,20 +323,38 @@ jobs:
           export PATH="$WORKDIR/kernel_workspace/clang19/bin:$WORKDIR/kernel_workspace/build-tools/bin:$WORKDIR/kernel_workspace/rust/bin:$PATH"
           cd kernel_workspace/common
           sed -i "s/^SUBLEVEL = .*/SUBLEVEL = ${{ needs.setup.outputs.sub_level }}/" Makefile
-          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfakestat.so
-          wget https://github.com/$GITHUB_REPOSITORY/raw/refs/heads/$GITHUB_REF_NAME/lib/libfaketimeMT.so
-          chmod +x libfakestat.so libfaketimeMT.so
+          
+          # Use local files instead of downloading (ensure the lib/ directory exists in your repository root)
+          chmod +x "${{ github.workspace }}/lib/libfakestat.so" "${{ github.workspace }}/lib/libfaketimeMT.so"
+          
           export FAKESTAT="2026-02-02 02:02:02"
           export FAKETIME="@2026-02-02 02:02:02"
-          export PRELOAD_LIBS="$(pwd)/libfakestat.so $(pwd)/libfaketimeMT.so"
+          export PRELOAD_LIBS="${{ github.workspace }}/lib/libfakestat.so ${{ github.workspace }}/lib/libfaketimeMT.so"
           export REAL_CLANG_PATH="$WORKDIR/kernel_workspace/clang19/bin/clang"
-          echo '#!/bin/bash' > cc-wrapper && echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> cc-wrapper && echo 'export FAKESTAT="'$FAKESTAT'"' >> cc-wrapper && echo 'export FAKETIME="'$FAKETIME'"' >> cc-wrapper && echo '$REAL_CLANG_PATH "$@"' >> cc-wrapper
-          echo '#!/bin/bash' > ld-wrapper && echo 'export LD_PRELOAD="'$PRELOAD_LIBS'"' >> ld-wrapper && echo 'export FAKESTAT="'$FAKESTAT'"' >> ld-wrapper && echo 'export FAKETIME="'$FAKETIME'"' >> ld-wrapper && echo 'ld.lld "$@"' >> ld-wrapper
+          
+          # Generate wrapper scripts using Heredoc
+          cat << EOF > cc-wrapper
+          #!/bin/bash
+          export LD_PRELOAD="$PRELOAD_LIBS"
+          export FAKESTAT="$FAKESTAT"
+          export FAKETIME="$FAKETIME"
+          exec $REAL_CLANG_PATH "\$@"
+          EOF
+          
+          cat << EOF > ld-wrapper
+          #!/bin/bash
+          export LD_PRELOAD="$PRELOAD_LIBS"
+          export FAKESTAT="$FAKESTAT"
+          export FAKETIME="$FAKETIME"
+          exec ld.lld "\$@"
+          EOF
+          
           chmod +x cc-wrapper ld-wrapper
           COMMON_REAL_PATH=$(pwd -P) && ROOT_REAL_PATH=$(dirname "$COMMON_REAL_PATH")
           export KCFLAGS="-fdebug-prefix-map=$ROOT_REAL_PATH=. -fmacro-prefix-map=$ROOT_REAL_PATH=. -ffile-prefix-map=$ROOT_REAL_PATH=. -no-canonical-prefixes -O2 -pipe -Wno-error -fno-stack-protector"
           export RUSTC="rustc" BINDGEN="bindgen" CC="clang" LIBCLANG_PATH="$WORKDIR/kernel_workspace/clang19/lib" HOSTCC=clang LD="ld.lld" HOSTLD=ld.lld LLVM=1 LLVM_IAS=1 ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip
           export KBUILD_BUILD_USER="kleaf" KBUILD_BUILD_HOST="build-host" KBUILD_BUILD_TIMESTAMP="Mon Feb 02 02:02:02 JST 2026"
+          
           make -j$(nproc --all) O=out gki_defconfig
           export CC="$(pwd)/cc-wrapper" LD="$(pwd)/ld-wrapper"
           make -j$(nproc --all) O=out Image
@@ -349,7 +367,11 @@ jobs:
           cp ./common/out/arch/arm64/boot/Image ./AnyKernel3/
           BUILD_DATE="$(date +'%d%m%y')"
           cd AnyKernel3
-          ZIP_NAME="${{ matrix.variant }}_nezha_6.12.${{ needs.setup.outputs.sub_level }}+${{ env.KSU_VER }}-${BUILD_DATE}-susfs-${{ env.SUSFS_VERSION || 'none' }}.zip"
+          
+          # Replace hardcoded codename with the device_codename provided via workflow input
+          CODENAME="${{ github.event.inputs.device_codename }}"
+          ZIP_NAME="${{ matrix.variant }}_${CODENAME}_6.12.${{ needs.setup.outputs.sub_level }}+${{ env.KSU_VER }}-${BUILD_DATE}-susfs-${{ env.SUSFS_VERSION || 'none' }}.zip"
+          
           zip -r9 "../$ZIP_NAME" *
           echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
 
